@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>海洋守护者 - Ocean Guardian</title>
+    <style>
+        :root {
+            --glass-bg: rgba(5, 25, 45, 0.55);
+            --glass-bg-hover: rgba(5, 25, 45, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.25);
+            --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            --text-primary: #e6f4fa;
+            --text-secondary: #b0d4e8;
+            --accent: #00d4aa;
+            --card-bg: rgba(5, 25, 45, 0.5);
+            --card-bg-hover: rgba(5, 25, 45, 0.65);
+            --ocean-deep: #0a3d5c;
+            --ocean-mid: #0d6b7d;
+            --ocean-light: #1a9bb5;
+            --coral: #ff6b6b;
+            --sand: #f5e6d3;
+            --white: #ffffff;
+            --danger: #ff4757;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background: #020e18;
+            color: var(--text-primary);
+            overflow-x: hidden;
+            min-height: 100vh;
+            line-height: 1.6;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        }
+
+        /* 视频背景容器 */
+        #bg-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -2;
+            overflow: hidden;
+            background: linear-gradient(135deg, #020e18 0%, #051f30 30%, #0a3d5c 60%, #020e18 100%);
+        }
+
+        #bg-video {
+            display: none;
+            /* 隐藏原始video元素，由canvas绘制 */;
+        }
+
+        #bg-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        /* 视频加载失败时的fallback渐变背景 */
+        #bg-fallback {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background:
+                radial-gradient(ellipse at 30% 50%, rgba(0, 180, 200, 0.25) 0%, transparent 60%),
+                radial-gradient(ellipse at 70% 30%, rgba(0, 140, 180, 0.2) 0%, transparent 55%),
+                radial-gradient(ellipse at 50% 80%, rgba(0, 100, 150, 0.3) 0%, transparent 50%),
+                linear-gradient(180deg, #010a14 0%, #042030 30%, #063545 60%, #021018 100%);
+            animation: oceanShimmer 8s ease-in-out infinite;
+        }
+
+        @keyframes oceanShimmer {
+            0%,
+            100% {
+                background-position: 0% 0%, 0% 0%, 0% 0%, 0% 0%;
+            }
+            25% {
+                background-position: 2% 1%, -1% 2%, 1% -1%, 0% 0%;
+            }
+            50% {
+                background-position: 0% 2%, 2% -1%, -1% 1%, 0% 0%;
+            }
+            75% {
+                background-position: -1% 0%, 1% 1%, 2% 0%, 0% 0%;
+            }
+        }
+
+        /* 水纹光效叠加层 */
+        #water-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            pointer-events: none;
+            background:
+                repeating-linear-gradient(0deg,
+                    transparent,
+                    transparent 40px,
+                    rgba(255, 255, 255, 0.02) 40px,
+                    rgba(255, 255, 255, 0.02) 42px),
+                repeating-linear-gradient(90deg,
+                    transparent,
+                    transparent 80px,
+                    rgba(255, 255, 255, 0.015) 80px,
+                    rgba(255, 255, 255, 0.015) 82px);
+            animation: waterRipple 15s linear infinite;
+        }
+
+        @keyframes waterRipple {
+            0% {
+                transform: translateY(0) translateX(0);
+            }
+            25% {
+                transform: translateY(-20px) translateX(10px);
+            }
+            50% {
+                transform: translateY(-10px) translateX(-5px);
+            }
+            75% {
+                transform: translateY(-25px) translateX(-10px);
+            }
+            100% {
+                transform: translateY(0) translateX(0);
+            }
+        }
+
+        /* 主布局 */
+        #app {
+            display: flex;
+            min-height: 100vh;
+            position: relative;
+            z-index: 1;
+        }
+
+        #main-content {
+            flex: 1;
+            padding: 30px 40px 40px 40px;
+            max-width: calc(100% - 380px);
+            overflow-y: auto;
+        }
+
+        #header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        #logo-area {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        #logo-icon {
+            width: 55px;
+            height: 55px;
+            border-radius: 50%;
+            background: var(--glass-bg);
+            border: 2px solid var(--glass-border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 30px;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            box-shadow: 0 0 25px rgba(0, 180, 200, 0.4);
+            animation: logoGlow 3s ease-in-out infinite;
+        }
+
+        @keyframes logoGlow {
+            0%,
+            100% {
+                box-shadow: 0 0 25px rgba(0, 180, 200, 0.4);
+            }
+            50% {
+                box-shadow: 0 0 45px rgba(0, 210, 180, 0.7);
+            }
+        }
+
+        #site-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #aee8ff, #00d4aa, #7bdfff);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: 2px;
+            filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.5));
+        }
+
+        #site-subtitle {
+            font-size: 0.85rem;
+            color: #c8e6f5;
+            letter-spacing: 1px;
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+        }
+
+        #nav-links {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .nav-btn {
+            padding: 10px 20px;
+            border-radius: 25px;
+            border: 1px solid var(--glass-border);
+            background: var(--glass-bg);
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 0.95rem;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+        }
+        .nav-btn:hover {
+            background: var(--glass-bg-hover);
+            border-color: var(--accent);
+            box-shadow: 0 4px 20px rgba(0, 212, 170, 0.4);
+            transform: translateY(-2px);
+        }
+        .nav-btn.active {
+            background: rgba(0, 120, 140, 0.55);
+            border-color: var(--accent);
+            box-shadow: 0 0 20px rgba(0, 200, 160, 0.45);
+        }
+
+        #articles-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .article-card {
+            background: var(--card-bg);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            border-radius: 16px;
+            padding: 24px 28px;
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+            transition: all 0.35s ease;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+        .article-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg,
+                    transparent,
+                    rgba(255, 255, 255, 0.06),
+                    transparent);
+            transition: left 0.6s ease;
+        }
+        .article-card:hover::before {
+            left: 100%;
+        }
+        .article-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+            border-color: rgba(255, 255, 255, 0.45);
+            background: var(--card-bg-hover);
+        }
+        .article-card .article-meta {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+        .article-card .article-date {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .article-card .article-tags {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .article-card .tag {
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            background: rgba(0, 180, 180, 0.3);
+            border: 1px solid rgba(0, 200, 180, 0.5);
+            color: #9fffe8;
+        }
+        .article-card h3 {
+            font-size: 1.4rem;
+            margin: 8px 0;
+            color: #e8f8ff;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+        }
+        .article-card .article-summary {
+            color: #c8e0f0;
+            font-size: 0.95rem;
+            line-height: 1.7;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .article-card .read-more {
+            display: inline-block;
+            margin-top: 10px;
+            color: var(--accent);
+            font-weight: 500;
+            font-size: 0.9rem;
+            transition: color 0.3s;
+        }
+        .article-card:hover .read-more {
+            color: #5fffd9;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+        .empty-state .empty-icon {
+            font-size: 60px;
+            margin-bottom: 15px;
+            opacity: 0.7;
+        }
+        .empty-state p {
+            font-size: 1.1rem;
+            letter-spacing: 1px;
+        }
+
+        /* 右侧边栏 */
+        #sidebar {
+            width: 360px;
+            min-width: 360px;
+            padding: 30px 20px 30px 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            overflow-y: auto;
+            z-index: 2;
+        }
+
+        #sidebar h2 {
+            text-align: center;
+            font-size: 1.3rem;
+            letter-spacing: 1.5px;
+            color: #daf0fc;
+            margin-bottom: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+        }
+        #sidebar h2 .icon {
+            font-size: 1.5rem;
+        }
+
+        #games-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .game-card {
+            background: rgba(5, 25, 45, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            border-radius: 14px;
+            padding: 18px 12px;
+            text-align: center;
+            cursor: pointer;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            transition: all 0.3s ease;
+            text-decoration: none;
+            color: var(--text-primary);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+        }
+        .game-card:hover {
+            transform: translateY(-5px) scale(1.03);
+            box-shadow: 0 14px 35px rgba(0, 0, 0, 0.55);
+            border-color: rgba(255, 255, 255, 0.5);
+            background: rgba(5, 25, 45, 0.65);
+        }
+        .game-card .game-icon-wrapper {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        .game-card:hover .game-icon-wrapper {
+            transform: scale(1.12);
+            box-shadow: 0 0 30px rgba(255, 255, 255, 0.4);
+        }
+        .game-card .game-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+            letter-spacing: 0.5px;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+        }
+        .game-card .game-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 0.65rem;
+            padding: 3px 8px;
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #ffeaa7;
+            letter-spacing: 0.5px;
+        }
+
+        /* 各游戏图标颜色 */
+        .game-card:nth-child(1) .game-icon-wrapper {
+            background: rgba(255, 107, 107, 0.35);
+            border: 2px solid rgba(255, 107, 107, 0.6);
+        }
+        .game-card:nth-child(2) .game-icon-wrapper {
+            background: rgba(78, 205, 196, 0.35);
+            border: 2px solid rgba(78, 205, 196, 0.6);
+        }
+        .game-card:nth-child(3) .game-icon-wrapper {
+            background: rgba(69, 183, 209, 0.35);
+            border: 2px solid rgba(69, 183, 209, 0.6);
+        }
+        .game-card:nth-child(4) .game-icon-wrapper {
+            background: rgba(249, 202, 36, 0.35);
+            border: 2px solid rgba(249, 202, 36, 0.6);
+        }
+        .game-card:nth-child(5) .game-icon-wrapper {
+            background: rgba(108, 92, 231, 0.35);
+            border: 2px solid rgba(108, 92, 231, 0.6);
+        }
+        .game-card:nth-child(6) .game-icon-wrapper {
+            background: rgba(255, 159, 67, 0.35);
+            border: 2px solid rgba(255, 159, 67, 0.6);
+        }
+
+        #ocean-tip {
+            background: rgba(5, 25, 45, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            border-radius: 14px;
+            padding: 16px 18px;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            text-align: center;
+            font-size: 0.85rem;
+            color: #c8e0f0;
+            letter-spacing: 0.5px;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+        }
+        #ocean-tip .tip-icon {
+            font-size: 28px;
+            display: block;
+            margin-bottom: 6px;
+        }
+        #ocean-tip strong {
+            color: #ffeaa7;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+        }
+
+        /* 响应式 */
+        @media (max-width: 1024px) {
+            #app {
+                flex-direction: column;
+            }
+            #main-content {
+                max-width: 100%;
+                padding: 20px 15px 20px 15px;
+            }
+            #sidebar {
+                width: 100%;
+                min-width: 100%;
+                height: auto;
+                position: relative;
+                flex-direction: row;
+                flex-wrap: wrap;
+                padding: 15px;
+                gap: 10px;
+                justify-content: center;
+            }
+            #sidebar h2 {
+                width: 100%;
+                text-align: center;
+            }
+            #games-grid {
+                grid-template-columns: repeat(3, 1fr);
+                gap: 10px;
+                width: 100%;
+            }
+            #ocean-tip {
+                width: 100%;
+            }
+            #header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            #nav-links {
+                width: 100%;
+                justify-content: flex-start;
+            }
+        }
+        @media (max-width: 600px) {
+            #games-grid {
+                grid-template-columns: 1fr 1fr;
+                gap: 8px;
+            }
+            .game-card {
+                padding: 12px 8px;
+            }
+            .game-card .game-icon-wrapper {
+                width: 45px;
+                height: 45px;
+                font-size: 24px;
+            }
+            #site-title {
+                font-size: 1.4rem;
+            }
+            .article-card {
+                padding: 16px 18px;
+            }
+            .article-card h3 {
+                font-size: 1.1rem;
+            }
+            .nav-btn {
+                padding: 8px 14px;
+                font-size: 0.8rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 视频背景 -->
+    <div id="bg-container">
+        <video id="bg-video" muted playsinline preload="auto" crossorigin="anonymous">
+            <source src="/video/ocean.mp4" type="video/mp4">
+            <source src="/video/ocean.webm" type="video/webm">
+        </video>
+        <canvas id="bg-canvas"></canvas>
+        <div id="bg-fallback"></div>
+    </div>
+    <!-- 水纹光效 -->
+    <div id="water-overlay"></div>
+
+    <!-- 主布局 -->
+    <div id="app">
+        <!-- 左侧主内容 -->
+        <main id="main-content">
+            <!-- 头部 -->
+            <header id="header">
+                <div id="logo-area">
+                    <div id="logo-icon">🐋</div>
+                    <div>
+                        <div id="site-title">海洋守护者</div>
+                        <div id="site-subtitle">Ocean Guardian · 守护蓝色星球</div>
+                    </div>
+                </div>
+                <nav id="nav-links">
+                    <a href="/" class="nav-btn active" id="nav-home">🏠 首页</a>
+                    <a href="/admin.html" class="nav-btn" id="nav-admin">✍️ 发布文章</a>
+                </nav>
+            </header>
+
+            <!-- 文章列表 -->
+            <section id="articles-container">
+                <div class="empty-state" id="loading-state">
+                    <div class="empty-icon">🌊</div>
+                    <p>正在加载文章...</p>
+                </div>
+            </section>
+        </main>
+
+        <!-- 右侧边栏 -->
+        <aside id="sidebar">
+            <h2><span class="icon">🎮</span> 海洋小游戏</h2>
+            <div id="games-grid">
+                <a href="/game.html?id=ocean-cleanup" class="game-card" title="海洋清洁工">
+                    <span class="game-badge">Hot</span>
+                    <div class="game-icon-wrapper">🧹</div>
+                    <div class="game-name">海洋清洁工</div>
+                </a>
+                <a href="/game.html?id=turtle-rescue" class="game-card" title="海龟救援">
+                    <div class="game-icon-wrapper">🐢</div>
+                    <div class="game-name">海龟救援</div>
+                </a>
+                <a href="/game.html?id=shark-defender" class="game-card" title="鲨鱼守护者">
+                    <div class="game-icon-wrapper">🦈</div>
+                    <div class="game-name">鲨鱼守护者</div>
+                </a>
+                <a href="/game.html?id=coral-reef" class="game-card" title="珊瑚种植">
+                    <span class="game-badge">新</span>
+                    <div class="game-icon-wrapper">🪸</div>
+                    <div class="game-name">珊瑚种植</div>
+                </a>
+                <a href="/game.html?id=whale-song" class="game-card" title="鲸鱼之歌">
+                    <div class="game-icon-wrapper">🐋</div>
+                    <div class="game-name">鲸鱼之歌</div>
+                </a>
+                <a href="/game.html?id=sustainable-fishing" class="game-card" title="可持续渔业">
+                    <div class="game-icon-wrapper">🎣</div>
+                    <div class="game-name">可持续渔业</div>
+                </a>
+            </div>
+            <div id="ocean-tip">
+                <span class="tip-icon">💙</span>
+                <span id="tip-text">每年约有<strong>800万吨</strong>塑料流入海洋，相当于每分钟向大海倾倒一卡车垃圾。</span>
+            </div>
+        </aside>
+    </div>
+
+    <script>
+        // ============ 视频背景引擎（平滑循环，避免抽搐） ============
+        (function() {
+            const video = document.getElementById('bg-video');
+            const canvas = document.getElementById('bg-canvas');
+            const ctx = canvas.getContext('2d');
+            const fallback = document.getElementById('bg-fallback');
+
+            let isVideoReady = false;
+            let isPlaying = false;
+            let animationFrameId = null;
+            // 用于淡入淡出的覆盖层
+            let overlayOpacity = 0;
+            let transitionState = 'none'; // 'none', 'fadeOut', 'fadeIn'
+            const fadeDuration = 0.4; // 淡入淡出持续时间（秒）
+            let fadeStartTime = 0;
+            const fadeThreshold = 0.6; // 距离结尾多少秒开始淡出
+
+            function resizeCanvas() {
+                const dpr = Math.min(window.devicePixelRatio || 1, 2);
+                canvas.width = window.innerWidth * dpr;
+                canvas.height = window.innerHeight * dpr;
+                canvas.style.width = window.innerWidth + 'px';
+                canvas.style.height = window.innerHeight + 'px';
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.scale(dpr, dpr);
+            }
+
+            // 绘制视频帧（cover模式）
+            function drawVideoFrame() {
+                if (video.readyState < 2) return;
+                const vw = video.videoWidth;
+                const vh = video.videoHeight;
+                const cw = window.innerWidth;
+                const ch = window.innerHeight;
+                if (vw === 0 || vh === 0) return;
+
+                const videoRatio = vw / vh;
+                const canvasRatio = cw / ch;
+                let drawWidth, drawHeight, offsetX, offsetY;
+
+                if (videoRatio > canvasRatio) {
+                    drawHeight = ch;
+                    drawWidth = ch * videoRatio;
+                    offsetX = -(drawWidth - cw) / 2;
+                    offsetY = 0;
+                } else {
+                    drawWidth = cw;
+                    drawHeight = cw / videoRatio;
+                    offsetX = 0;
+                    offsetY = -(drawHeight - ch) / 2;
+                }
+                ctx.drawImage(video, offsetX, offsetY, drawWidth, drawHeight);
+            }
+
+            // 绘制覆盖层（用于淡入淡出）
+            function drawOverlay(opacity) {
+                if (opacity <= 0) return;
+                ctx.fillStyle = `rgba(0, 0, 0, ${opacity})`;
+                ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+            }
+
+            // 动画循环
+            function animate(timestamp) {
+                if (!isVideoReady) {
+                    animationFrameId = requestAnimationFrame(animate);
+                    return;
+                }
+
+                // 计算当前时间
+                const currentTime = video.currentTime;
+                const duration = video.duration;
+                const timeToEnd = duration - currentTime;
+
+                // 状态机：处理淡出和淡入
+                if (transitionState === 'none' && timeToEnd < fadeThreshold) {
+                    // 开始淡出
+                    transitionState = 'fadeOut';
+                    fadeStartTime = timestamp;
+                    overlayOpacity = 0;
+                }
+
+                if (transitionState === 'fadeOut') {
+                    const elapsed = (timestamp - fadeStartTime) / 1000;
+                    overlayOpacity = Math.min(1, elapsed / fadeDuration);
+                    if (overlayOpacity >= 1) {
+                        // 重置视频到开头
+                        video.currentTime = 0;
+                        transitionState = 'fadeIn';
+                        fadeStartTime = timestamp;
+                        overlayOpacity = 1;
+                    }
+                } else if (transitionState === 'fadeIn') {
+                    const elapsed = (timestamp - fadeStartTime) / 1000;
+                    overlayOpacity = Math.max(0, 1 - elapsed / fadeDuration);
+                    if (overlayOpacity <= 0) {
+                        transitionState = 'none';
+                        overlayOpacity = 0;
+                    }
+                }
+
+                // 绘制视频帧
+                drawVideoFrame();
+                // 绘制黑色覆盖层
+                drawOverlay(overlayOpacity);
+
+                animationFrameId = requestAnimationFrame(animate);
+            }
+
+            function onVideoLoaded() {
+                clearTimeout(loadTimeout);
+                isVideoReady = true;
+                fallback.style.display = 'none';
+                canvas.style.display = 'block';
+                resizeCanvas();
+                video.play().then(() => {
+                    isPlaying = true;
+                    // 确保transitionState从none开始
+                    transitionState = 'none';
+                    overlayOpacity = 0;
+                }).catch(err => console.warn('视频自动播放受限:', err));
+                animationFrameId = requestAnimationFrame(animate);
+            }
+
+            function onVideoError() {
+                clearTimeout(loadTimeout);
+                console.warn('视频加载失败，使用fallback背景');
+                isVideoReady = false;
+                fallback.style.display = 'block';
+                canvas.style.display = 'none';
+            }
+
+            let loadTimeout = setTimeout(() => {
+                if (!isVideoReady) {
+                    onVideoError();
+                }
+            }, 10000);
+
+            video.addEventListener('loadedmetadata', onVideoLoaded);
+            video.addEventListener('error', onVideoError);
+            video.addEventListener('ended', () => {
+                // 如果transitionState没来得及处理，手动重置
+                if (transitionState === 'none') {
+                    video.currentTime = 0;
+                }
+            });
+            video.load();
+
+            window.addEventListener('resize', resizeCanvas);
+
+            // 页面隐藏时暂停绘制
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) {
+                    if (animationFrameId) cancelAnimationFrame(animationFrameId);
+                    animationFrameId = null;
+                } else if (isVideoReady) {
+                    animationFrameId = requestAnimationFrame(animate);
+                }
+            });
+
+            resizeCanvas();
+        })();
+
+        // ============ 文章加载与展示 ============
+        async function loadArticles() {
+            const container = document.getElementById('articles-container');
+            try {
+                const res = await fetch('/api/articles');
+                if (!res.ok) throw new Error('网络请求失败');
+                const articles = await res.json();
+
+                if (!articles || articles.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-icon">📝</div>
+                            <p>还没有文章，快来发布第一篇吧！</p>
+                            <a href="/admin.html" class="nav-btn" style="margin-top:15px;display:inline-flex;">✍️ 发布文章</a>
+                        </div>`;
+                    return;
+                }
+
+                // 按日期降序排列
+                articles.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+                container.innerHTML = articles.map(article => `
+                    <article class="article-card" data-id="${article.id}" onclick="openArticle('${article.id}')">
+                        <div class="article-meta">
+                            <span class="article-date">📅 ${article.date}</span>
+                            <span>✍️ ${escapeHtml(article.author || '匿名')}</span>
+                            ${article.tags && article.tags.length > 0 ? `
+                            <span class="article-tags">
+                                ${article.tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}
+                            </span>` : ''}
+                        </div>
+                        <h3>${escapeHtml(article.title)}</h3>
+                        <p class="article-summary">${escapeHtml(article.summary || stripHtml(article.content).substring(0, 150) + '...')}</p>
+                        <span class="read-more">阅读全文 →</span>
+                    </article>
+                `).join('');
+
+            } catch (err) {
+                console.error('加载文章失败:', err);
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">⚠️</div>
+                        <p>加载文章失败，请检查网络连接</p>
+                    </div>`;
+            }
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function stripHtml(html) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            return tmp.textContent || tmp.innerText || '';
+        }
+
+        // ============ 文章点击跳转到独立页面 ============
+        function openArticle(id) {
+            window.location.href = `/article.html?id=${encodeURIComponent(id)}`;
+        }
+
+        // ============ 海洋小贴士轮换 ============
+        const oceanTips = [
+            '每年约有<strong>800万吨</strong>塑料流入海洋，相当于每分钟向大海倾倒一卡车垃圾。',
+            '海洋产生了地球上<strong>50%以上</strong>的氧气，是地球真正的"绿肺"。',
+            '全球<strong>90%</strong>的大型鱼类种群已被过度捕捞，保护海洋刻不容缓。',
+            '珊瑚礁只占海洋面积的<strong>不到1%</strong>，却养育了25%的海洋生物。',
+            '一只海龟在其一生中可以吃掉<strong>超过1000只</strong>水母，是海洋生态的重要守护者。',
+            '减少使用一次性塑料制品，选择可重复使用的替代品，就能为海洋减负。',
+            '鲸鱼的粪便为浮游植物提供养分，而浮游植物吸收了全球<strong>约40%</strong>的二氧化碳。',
+            '全球变暖导致海平面上升，<strong>威胁着数亿</strong>沿海居民的生活。',
+        ];
+
+        let tipIndex = 0;
+
+        function rotateTip() {
+            tipIndex = (tipIndex + 1) % oceanTips.length;
+            const tipEl = document.getElementById('tip-text');
+            tipEl.style.opacity = '0';
+            tipEl.style.transition = 'opacity 0.5s ease';
+            setTimeout(() => {
+                tipEl.innerHTML = oceanTips[tipIndex];
+                tipEl.style.opacity = '1';
+            }, 200);
+        }
+        setInterval(rotateTip, 8000);
+
+        // ============ 初始化 ============
+        function init() {
+            loadArticles();
+            // 高亮当前导航
+            const path = window.location.pathname;
+            if (path.includes('admin')) {
+                document.getElementById('nav-admin').classList.add('active');
+                document.getElementById('nav-home').classList.remove('active');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+
+        console.log('🐋 海洋守护者网站已就绪（流畅循环版本）');
+    </script>
+</body>
+</html>

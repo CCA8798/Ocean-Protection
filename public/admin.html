@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>发布文章 - 海洋守护者</title>
+  <style>
+    body {
+      background: linear-gradient(135deg, #e0f2f7, #b2dfee);
+      color: #0b3a4a;
+      font-family: 'Segoe UI', 'PingFang SC', sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+    }
+    .form-container {
+      background: rgba(255,255,255,0.75);
+      border: 1px solid rgba(120,180,200,0.4);
+      border-radius: 24px;
+      padding: 35px;
+      width: 100%;
+      max-width: 750px;
+      backdrop-filter: blur(15px);
+      box-shadow: 0 10px 30px rgba(0,80,100,0.15);
+    }
+    h1 { text-align: center; color: #043b4e; }
+    label { display: block; margin: 15px 0 5px; color: #2d5a6e; font-weight: 500; }
+    input, textarea {
+      width: 100%; padding: 12px 15px;
+      border-radius: 12px;
+      border: 1px solid rgba(0,150,136,0.3);
+      background: white;
+      color: #0b3a4a;
+      font-size: 1rem; outline: none;
+      transition: border 0.3s;
+    }
+    input:focus, textarea:focus { border-color: #00897b; box-shadow: 0 0 0 3px rgba(0,150,136,0.1); }
+    textarea { min-height: 240px; resize: vertical; }
+    .tips {
+      font-size: 0.85rem;
+      color: #00695c;
+      margin-top: 5px;
+      background: rgba(0,150,136,0.08);
+      padding: 8px 12px;
+      border-radius: 8px;
+    }
+    .upload-section {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 10px 0;
+    }
+    #image-url-input {
+      flex: 1;
+      background: #f0f8fa;
+    }
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 25px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    .btn-upload {
+      background: #e0f2f7;
+      color: #0077b6;
+      border: 1px solid rgba(0,150,136,0.3);
+    }
+    .btn-upload:hover { background: #b2dfee; }
+    .btn-submit {
+      margin-top: 25px;
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, #00897b, #00695c);
+      color: white;
+      font-size: 1.1rem;
+      letter-spacing: 1px;
+    }
+    .btn-submit:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,150,136,0.3); }
+    .success-msg { display: none; color: #00695c; text-align: center; margin-top: 15px; }
+    .back-link { display: block; text-align: center; margin-top: 20px; color: #0077b6; }
+  </style>
+</head>
+<body>
+  <div class="form-container">
+    <h1>✍️ 发布海洋文章</h1>
+    <form id="article-form">
+      <label for="title">文章标题 *</label>
+      <input type="text" id="title" required placeholder="例如：保护珊瑚礁的5种方式">
+
+      <label for="author">作者</label>
+      <input type="text" id="author" placeholder="留空则显示'匿名'">
+
+      <label for="tags">标签（逗号分隔）</label>
+      <input type="text" id="tags" placeholder="珊瑚, 海洋生态">
+
+      <label for="summary">摘要（纯文本，不填则自动截取正文前150字）</label>
+      <textarea id="summary" rows="2" placeholder="简短描述文章内容"></textarea>
+
+      <label for="content">正文内容 *（支持 HTML 标签，可插入图片）</label>
+      <textarea id="content" required placeholder="<p>这里可以写 HTML 内容</p>"></textarea>
+
+      <div class="tips">
+        💡 <strong>插入图片：</strong>点击下方上传按钮，上传后复制链接，在正文中使用 <code>&lt;img src="图片链接"&gt;</code> 即可。
+      </div>
+
+      <!-- 图片上传区域 -->
+      <div class="upload-section">
+        <input type="file" id="image-file" accept="image/*" style="display:none">
+        <button type="button" class="btn btn-upload" id="btn-upload">🖼️ 选择图片上传</button>
+        <input type="text" id="image-url-input" readonly placeholder="上传成功后显示图片地址">
+        <button type="button" class="btn btn-upload" id="btn-copy-url" disabled>📋 复制</button>
+      </div>
+      <div id="upload-status" style="font-size:0.85rem; color:#00897b;"></div>
+
+      <button type="submit" class="btn btn-submit">🌊 发布文章</button>
+    </form>
+    <div class="success-msg" id="success-msg">✅ 文章发布成功！可返回首页查看。</div>
+    <a href="/" class="back-link">← 返回首页</a>
+  </div>
+
+  <script>
+    // 图片上传相关逻辑
+    const fileInput = document.getElementById('image-file');
+    const btnUpload = document.getElementById('btn-upload');
+    const urlInput = document.getElementById('image-url-input');
+    const btnCopyUrl = document.getElementById('btn-copy-url');
+    const uploadStatus = document.getElementById('upload-status');
+
+    btnUpload.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      uploadStatus.textContent = '上传中...';
+      const formData = new FormData();
+      formData.append('image', file);
+      try {
+        const res = await fetch('/api/upload', { method: 'POST', body: formData });
+        if (!res.ok) throw new Error('上传失败');
+        const data = await res.json();
+        urlInput.value = data.url;
+        btnCopyUrl.disabled = false;
+        uploadStatus.textContent = '✅ 上传成功！';
+      } catch (err) {
+        uploadStatus.textContent = '❌ 上传失败：' + err.message;
+      }
+    });
+
+    btnCopyUrl.addEventListener('click', () => {
+      urlInput.select();
+      document.execCommand('copy');
+      uploadStatus.textContent = '📋 链接已复制，去正文中粘贴吧';
+    });
+
+    // 文章发布
+    document.getElementById('article-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const title = document.getElementById('title').value.trim();
+      const content = document.getElementById('content').value.trim();
+      if (!title || !content) return alert('请填写标题和正文内容');
+
+      const author = document.getElementById('author').value.trim();
+      const tagsInput = document.getElementById('tags').value;
+      const summary = document.getElementById('summary').value.trim();
+      const tags = tagsInput ? tagsInput.split(',').map(t => t.trim()).filter(Boolean) : [];
+
+      const articleData = { title, content, author, summary, tags };
+      try {
+        const res = await fetch('/api/articles', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(articleData)
+        });
+        if (res.ok) {
+          document.getElementById('success-msg').style.display = 'block';
+          document.getElementById('article-form').reset();
+          urlInput.value = '';
+          btnCopyUrl.disabled = true;
+          uploadStatus.textContent = '';
+          setTimeout(() => { document.getElementById('success-msg').style.display = 'none'; }, 3000);
+        } else {
+          const err = await res.json();
+          alert('发布失败：' + (err.error || '未知错误'));
+        }
+      } catch (err) {
+        alert('网络错误，请检查服务器是否启动');
+      }
+    });
+  </script>
+</body>
+</html>
