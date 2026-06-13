@@ -101,11 +101,11 @@
       <label for="summary">摘要（纯文本，不填则自动截取正文前150字）</label>
       <textarea id="summary" rows="2" placeholder="简短描述文章内容"></textarea>
 
-      <label for="content">正文内容 *（支持 HTML 标签，可插入图片）</label>
-      <textarea id="content" required placeholder="<p>这里可以写 HTML 内容</p>"></textarea>
+      <label for="content">正文内容 *（支持 Markdown 格式）</label>
+      <textarea id="content" required placeholder="## 标题&#10;&#10;这里可以写 **Markdown** 内容"></textarea>
 
       <div class="tips">
-        💡 <strong>插入图片：</strong>点击下方上传按钮，上传后复制链接，在正文中使用 <code>&lt;img src="图片链接"&gt;</code> 即可。
+        💡 <strong>插入图片：</strong>点击下方上传按钮，上传后复制链接，在正文中使用 <code>![图片描述](图片链接)</code> 即可。
       </div>
 
       <!-- 图片上传区域 -->

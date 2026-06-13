@@ -83,6 +83,64 @@
       text-decoration: none;
     }
     .game-select a.active { background: var(--accent); color: #031d28; font-weight: bold; }
+    .game-controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+    .diff-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.82rem;
+      color: var(--text);
+    }
+    .diff-btn {
+      padding: 4px 14px;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 14px;
+      background: transparent;
+      color: #b0d4e8;
+      cursor: pointer;
+      font-size: 0.78rem;
+      transition: all 0.2s;
+      font-family: inherit;
+    }
+    .diff-btn:hover { border-color: var(--accent); color: #fff; }
+    .diff-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #031d28;
+      font-weight: bold;
+    }
+    .help-btn {
+      padding: 4px 14px;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 14px;
+      background: transparent;
+      color: #b0d4e8;
+      cursor: pointer;
+      font-size: 0.78rem;
+      transition: all 0.2s;
+      font-family: inherit;
+    }
+    .help-btn:hover { border-color: var(--accent); color: #fff; }
+    .help-panel {
+      display: none;
+      margin-top: 10px;
+      padding: 14px 18px;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 12px;
+      font-size: 0.82rem;
+      line-height: 1.7;
+      color: #c0dce8;
+      max-width: 100%;
+    }
+    .help-panel.show { display: block; }
   </style>
 </head>
 <body>
@@ -92,6 +150,21 @@
       <span id="score-display"></span>
     </div>
     <canvas id="gameCanvas" width="600" height="400"></canvas>
+    <div id="speed-control" style="display:none; margin-top:10px; align-items:center; gap:10px; justify-content:center; color:var(--text); font-size:0.85rem;">
+      <span>🐢 速度</span>
+      <input type="range" id="speed-slider" min="0.5" max="6" step="0.5" value="2" style="width:120px; accent-color:var(--accent);">
+      <span id="speed-value">2x</span>
+    </div>
+    <div class="game-controls">
+      <div class="diff-group">
+        <span>🎯 难度</span>
+        <button class="diff-btn" data-diff="easy">简单</button>
+        <button class="diff-btn active" data-diff="normal">普通</button>
+        <button class="diff-btn" data-diff="hard">困难</button>
+      </div>
+      <button class="help-btn" id="help-btn">📖 玩法说明</button>
+    </div>
+    <div class="help-panel" id="help-panel"></div>
     <div class="game-select" id="game-nav">
       <a href="?id=ocean-cleanup">🧹清洁工</a>
       <a href="?id=turtle-rescue">🐢救援</a>
@@ -120,7 +193,19 @@
 
       // 游戏通用状态
       let currentGame = null;
+      let currentGameClass = null;
       let animationFrameId = null;
+      var difficulty = 'normal';
+
+      // 玩法说明
+      var helpTexts = {
+        'ocean-cleanup': '🧹 用篮子接住掉落的垃圾：🥤塑料杯+5分、🥫易拉罐+10分、🛍️塑料袋+15分。小心🐟鱼类（-5分并扣失误）！连续接垃圾触发🔥连击加分。失误超过上限游戏结束。',
+        'turtle-rescue': '🐢 控制海龟躲避渔网（从上方和两侧袭来），救援迷路的🐢小海龟（+20分）。🛡️护盾道具可抵挡一次渔网。❤️生命耗尽游戏结束。',
+        'shark-defender': '🦈 控制鲨鱼躲避鱼叉（红色闪光预警），吃掉🐟治愈鱼恢复生命。生存越久得分越高，生命值归零游戏结束。',
+        'coral-reef': '🪸 点击空圈种植珊瑚碎片，点击垃圾清理干净。珊瑚会逐步生长（5阶段），垃圾掉落会伤害珊瑚。碎片用尽且无存活珊瑚则游戏结束。连续清理垃圾获得连击加分！',
+        'whale-song': '🐋 记忆并重复鲸鱼的歌声序列。按钮会依次高亮显示，之后按相同顺序点击。序列长度逐步增加，点击错误即游戏结束。',
+        'sustainable-fishing': '🎣 点击下钩位置，钓到🐟大鱼（>30cm）+50分，钓到🐠小鱼（<30cm）放生-15分。注意控制捕捞尺寸，实现可持续渔业。⏱倒计时结束游戏结束。'
+      };
 
       // 映射游戏名称
       const gameNames = {
@@ -136,72 +221,118 @@
       // ================== 游戏1：海洋清洁工 ==================
       class OceanCleanup {
         constructor() {
-          this.basket = { x: canvas.width/2 - 40, y: canvas.height - 60, w: 80, h: 30 };
+          this.basket = { x: canvas.width/2 - 40, y: canvas.height - 55, w: 80, h: 25 };
           this.items = [];
           this.score = 0;
+          this.combo = 0;
+          this.maxCombo = 0;
           this.misses = 0;
           this.maxMisses = 5;
           this.speed = 2;
           this.spawnTimer = 0;
+          this._gameOver = false;
+          this.waveTime = 0;
+          this.trashTypes = [
+            { emoji: '🥤', points: 5, label: '塑料杯' },
+            { emoji: '🥫', points: 10, label: '易拉罐' },
+            { emoji: '🛍️', points: 15, label: '塑料袋' },
+          ];
+        }
+        setDifficulty(diff) {
+          if (diff === 'easy') { this.maxMisses = 8; this.speed = 1.5; }
+          else if (diff === 'hard') { this.maxMisses = 3; this.speed = 3; }
+          else { this.maxMisses = 5; this.speed = 2; }
         }
         update() {
-          // 移动篮子跟随鼠标/触摸
-          // 事件绑定在外部
-          // 生成垃圾
+          if (this._gameOver) return false;
+          this.waveTime += 0.03;
           this.spawnTimer++;
-          if (this.spawnTimer > 30) {
+          if (this.spawnTimer > Math.max(15, 35 - this.speed * 2)) {
             this.spawnTimer = 0;
-            const isBad = Math.random() < 0.2; // 20% 是鱼（不能接）
+            var t = this.trashTypes[Math.floor(Math.random() * this.trashTypes.length)];
+            var isFish = Math.random() < 0.15;
             this.items.push({
-              x: Math.random() * (canvas.width - 30),
-              y: -20,
-              type: isBad ? 'fish' : 'trash',
+              x: 20 + Math.random() * (canvas.width - 40),
+              y: -25,
+              type: isFish ? 'fish' : 'trash',
+              trashType: isFish ? null : t,
               speed: this.speed + Math.random() * 1.5,
+              rot: 0,
+              rotSpeed: (Math.random() - 0.5) * 0.06,
             });
-            this.speed += 0.005;
+            this.speed = Math.min(this.speed + 0.003, 8);
           }
-          // 更新物品
-          for (let i = this.items.length-1; i >= 0; i--) {
-            const item = this.items[i];
+          for (var i = this.items.length - 1; i >= 0; i--) {
+            var item = this.items[i];
             item.y += item.speed;
-            // 检测接住
-            if (item.y + 20 > this.basket.y && item.y < this.basket.y + this.basket.h &&
+            item.rot += item.rotSpeed;
+            if (item.y + 18 > this.basket.y && item.y < this.basket.y + this.basket.h &&
                 item.x + 15 > this.basket.x && item.x - 15 < this.basket.x + this.basket.w) {
-              if (item.type === 'trash') this.score += 10;
-              else { this.score -= 5; this.misses++; } // 误接鱼
-              this.items.splice(i,1);
-            } else if (item.y > canvas.height) {
-              if (item.type === 'trash') this.misses++;
-              this.items.splice(i,1);
+              if (item.type === 'trash') {
+                this.combo++;
+                if (this.combo > this.maxCombo) this.maxCombo = this.combo;
+                var bonus = 1 + Math.floor((this.combo - 1) / 5) * 0.5;
+                this.score += (item.trashType ? item.trashType.points : 10) * bonus;
+              } else {
+                this.combo = 0;
+                this.score = Math.max(0, this.score - 5);
+                this.misses++;
+              }
+              this.items.splice(i, 1);
+            } else if (item.y > canvas.height + 25) {
+              if (item.type === 'trash') { this.misses++; this.combo = 0; }
+              this.items.splice(i, 1);
             }
           }
-          if (this.misses >= this.maxMisses) return false; // game over
+          if (this.misses >= this.maxMisses) { this._gameOver = true; return false; }
           return true;
         }
         draw() {
-          ctx.clearRect(0,0,canvas.width,canvas.height);
-          // 海水渐变
-          const grad = ctx.createLinearGradient(0,0,0,canvas.height);
-          grad.addColorStop(0,'#0a4a6e');
-          grad.addColorStop(1,'#021f30');
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          var grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+          grad.addColorStop(0, '#0a5a7e');
+          grad.addColorStop(0.3, '#0a4a6e');
+          grad.addColorStop(1, '#021f30');
           ctx.fillStyle = grad;
-          ctx.fillRect(0,0,canvas.width,canvas.height);
-          // 画篮子
-          ctx.fillStyle = '#8B5A2B';
-          ctx.fillRect(this.basket.x, this.basket.y, this.basket.w, this.basket.h);
-          ctx.fillStyle = '#deb887';
-          ctx.fillRect(this.basket.x+5, this.basket.y-8, this.basket.w-10, 10);
-          // 画物品
-          for (const item of this.items) {
-            if (item.type === 'trash') {
-              ctx.fillStyle = '#888'; ctx.fillRect(item.x-8, item.y-8, 16, 16);
-              ctx.fillStyle = '#c0392b'; ctx.font='14px sans-serif'; ctx.fillText('♻️', item.x-10, item.y+5);
-            } else {
-              ctx.fillStyle = '#FFA500'; ctx.beginPath(); ctx.arc(item.x, item.y, 10, 0, Math.PI*2); ctx.fill();
-              ctx.fillStyle = '#000'; ctx.font='12px sans-serif'; ctx.fillText('🐟', item.x-10, item.y+4);
-            }
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          // 水波
+          ctx.beginPath();
+          ctx.moveTo(0, 18);
+          for (var x = 0; x <= canvas.width; x += 4) {
+            ctx.lineTo(x, 18 + Math.sin(x * 0.05 + this.waveTime) * 3 + Math.sin(x * 0.025 + this.waveTime * 0.5) * 2);
           }
-          scoreEl.textContent = `得分: ${this.score} | 剩余失误: ${this.maxMisses - this.misses}`;
+          ctx.lineTo(canvas.width, 0); ctx.lineTo(0, 0); ctx.closePath();
+          ctx.fillStyle = 'rgba(255,255,255,0.07)';
+          ctx.fill();
+          // 物品
+          for (var i = 0; i < this.items.length; i++) {
+            var item = this.items[i];
+            ctx.save();
+            ctx.translate(item.x, item.y);
+            ctx.rotate(item.rot);
+            ctx.font = '22px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            if (item.type === 'trash' && item.trashType) ctx.fillText(item.trashType.emoji, 0, 0);
+            else if (item.type === 'fish') ctx.fillText('🐟', 0, 0);
+            ctx.restore();
+          }
+          // 篮子
+          ctx.shadowColor = 'rgba(139,90,43,0.3)';
+          ctx.shadowBlur = 8;
+          ctx.fillStyle = '#8B5A2B';
+          ctx.beginPath(); ctx.roundRect(this.basket.x, this.basket.y, this.basket.w, this.basket.h, 4); ctx.fill();
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = '#deb887';
+          ctx.fillRect(this.basket.x + 5, this.basket.y - 5, this.basket.w - 10, 8);
+          // 奖励 & 连击
+          if (this.combo > 2) {
+            ctx.fillStyle = '#ffd700';
+            ctx.font = 'bold 15px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('🔥 ' + this.combo + ' 连击!', canvas.width/2, 50);
+          }
+          scoreEl.textContent = '🎯 ' + Math.floor(this.score) + '分 | 失误 ' + this.misses + '/' + this.maxMisses + (this.combo > 2 ? ' | 🔥连击x' + this.combo : '');
         }
       }
 
@@ -210,65 +341,109 @@
         constructor() {
           this.turtle = { x: canvas.width/2, y: canvas.height - 50, r: 18 };
           this.nets = [];
-          this.babyTurtles = []; // 需要救援的小海龟
+          this.babyTurtles = [];
+          this.shields = [];
           this.score = 0;
           this.lives = 3;
           this.spawnTimer = 0;
-          this.turtleSpeed = 5;
+          this.hasShield = false;
+          this._gameOver = false;
+        }
+        setDifficulty(diff) {
+          if (diff === 'easy') this.lives = 5;
+          else if (diff === 'hard') this.lives = 2;
+          else this.lives = 3;
         }
         update() {
-          // 渔网生成
+          if (this._gameOver) return false;
           this.spawnTimer++;
-          if (this.spawnTimer > 40) {
+          if (this.spawnTimer > 35) {
             this.spawnTimer = 0;
-            this.nets.push({ x: Math.random()*canvas.width, y: -20, w: 60, h: 20, speed: 2 + Math.random()*2 });
-            // 小海龟随机出现
-            if (Math.random() < 0.3) {
-              this.babyTurtles.push({ x: Math.random()*canvas.width, y: -20, r: 10, speed: 1.5 });
+            // 渔网：从顶部或侧面
+            if (Math.random() < 0.5) {
+              this.nets.push({ x: Math.random()*(canvas.width-60), y: -20, w: 60, h: 18, speed: 2+Math.random()*2, dir:'down' });
+            } else {
+              var side = Math.random() < 0.5 ? -1 : 1;
+              this.nets.push({ x: side < 0 ? -20 : canvas.width+20, y: Math.random()*(canvas.height-60), w: 18, h: 50, speed: 2+Math.random()*2, dir: side < 0 ? 'right' : 'left' });
+            }
+            // 小海龟
+            if (Math.random() < 0.35) {
+              this.babyTurtles.push({ x: Math.random()*canvas.width, y: -20, r: 10, speed: 1.5+Math.random()*0.5, sparkle:0 });
+            }
+            // 护盾
+            if (!this.hasShield && Math.random() < 0.08) {
+              this.shields.push({ x: Math.random()*canvas.width, y: -20, speed: 1 });
             }
           }
-          // 移动海龟
-          // 由键盘/触摸控制，事件绑定在外部
-          // 更新渔网
-          for (let i=this.nets.length-1; i>=0; i--) {
-            const net = this.nets[i];
-            net.y += net.speed;
-            // 碰撞检测
-            if (Math.abs(this.turtle.x - net.x - net.w/2) < net.w/2 + this.turtle.r &&
-                Math.abs(this.turtle.y - net.y - net.h/2) < net.h/2 + this.turtle.r) {
-              this.lives--;
-              this.nets.splice(i,1);
-              if (this.lives <= 0) return false;
-            } else if (net.y > canvas.height) this.nets.splice(i,1);
+          // 护盾
+          for (var i=this.shields.length-1; i>=0; i--) {
+            var sh = this.shields[i]; sh.y += sh.speed;
+            if (Math.hypot(this.turtle.x - sh.x, this.turtle.y - sh.y) < this.turtle.r + 12) {
+              this.hasShield = true; this.shields.splice(i,1);
+            } else if (sh.y > canvas.height) this.shields.splice(i,1);
+          }
+          // 渔网碰撞
+          for (var i=this.nets.length-1; i>=0; i--) {
+            var net = this.nets[i];
+            if (net.dir === 'down') net.y += net.speed;
+            else if (net.dir === 'left') net.x -= net.speed;
+            else net.x += net.speed;
+            var cx = net.x + net.w/2, cy = net.y + net.h/2;
+            if (Math.abs(this.turtle.x - cx) < net.w/2 + this.turtle.r && Math.abs(this.turtle.y - cy) < net.h/2 + this.turtle.r) {
+              if (this.hasShield) { this.hasShield = false; this.nets.splice(i,1); }
+              else { this.lives--; this.nets.splice(i,1); if (this.lives <= 0) { this._gameOver = true; return false; } }
+            } else if (net.x > canvas.width+30 || net.x < -50 || net.y > canvas.height+30) this.nets.splice(i,1);
           }
           // 救援小海龟
-          for (let i=this.babyTurtles.length-1; i>=0; i--) {
-            const b = this.babyTurtles[i];
-            b.y += b.speed;
+          for (var i=this.babyTurtles.length-1; i>=0; i--) {
+            var b = this.babyTurtles[i]; b.y += b.speed; b.sparkle++;
             if (Math.hypot(this.turtle.x - b.x, this.turtle.y - b.y) < this.turtle.r + b.r) {
-              this.score += 20;
-              this.babyTurtles.splice(i,1);
+              this.score += 20; this.babyTurtles.splice(i,1);
             } else if (b.y > canvas.height) this.babyTurtles.splice(i,1);
           }
           return true;
         }
         draw() {
           ctx.clearRect(0,0,canvas.width,canvas.height);
-          const grad = ctx.createLinearGradient(0,0,0,canvas.height);
+          var grad = ctx.createLinearGradient(0,0,0,canvas.height);
           grad.addColorStop(0,'#1b7a8a'); grad.addColorStop(1,'#021f30');
           ctx.fillStyle = grad; ctx.fillRect(0,0,canvas.width,canvas.height);
+          // 海底装饰
+          ctx.fillStyle = 'rgba(90,70,40,0.3)';
+          ctx.fillRect(0, canvas.height-20, canvas.width, 20);
           // 渔网
-          ctx.fillStyle = 'rgba(200,200,200,0.6)';
-          for (const net of this.nets) {
-            ctx.fillRect(net.x, net.y, net.w, net.h);
-            ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.strokeRect(net.x, net.y, net.w, net.h);
+          for (var i=0; i<this.nets.length; i++) {
+            var net = this.nets[i];
+            ctx.fillStyle = 'rgba(180,160,140,0.7)';
+            ctx.beginPath(); ctx.roundRect(net.x, net.y, net.w, net.h, 3); ctx.fill();
+            ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.roundRect(net.x, net.y, net.w, net.h, 3); ctx.stroke();
+            // 网纹
+            ctx.strokeStyle = 'rgba(200,200,200,0.15)'; ctx.lineWidth = 0.5;
+            for (var g=0; g<3; g++) {
+              if (net.dir === 'down') { ctx.beginPath(); ctx.moveTo(net.x+g*15, net.y); ctx.lineTo(net.x+g*15, net.y+net.h); ctx.stroke(); }
+              else { ctx.beginPath(); ctx.moveTo(net.x, net.y+g*15); ctx.lineTo(net.x+net.w, net.y+g*15); ctx.stroke(); }
+            }
+          }
+          // 护盾道具
+          for (var i=0; i<this.shields.length; i++) {
+            ctx.font='22px sans-serif'; ctx.textAlign='center';
+            ctx.fillText('🛡️', this.shields[i].x, this.shields[i].y+7);
           }
           // 小海龟
-          ctx.fillStyle = '#2ecc71'; ctx.font='20px sans-serif';
-          for (const b of this.babyTurtles) ctx.fillText('🐢', b.x-12, b.y+8);
+          ctx.font='20px sans-serif'; ctx.textAlign='center';
+          for (var i=0; i<this.babyTurtles.length; i++) {
+            var b = this.babyTurtles[i];
+            ctx.fillText('🐢', b.x, b.y+7);
+            if (b.sparkle % 20 < 10) { ctx.fillStyle='rgba(255,255,200,0.3)'; ctx.beginPath(); ctx.arc(b.x, b.y, 14,0,Math.PI*2); ctx.fill(); }
+          }
           // 大海龟
-          ctx.font='36px sans-serif'; ctx.fillText('🐢', this.turtle.x-18, this.turtle.y+12);
-          scoreEl.textContent = `救援: ${this.score} | 生命: ${'❤️'.repeat(this.lives)}`;
+          if (this.hasShield) {
+            ctx.fillStyle = 'rgba(100,200,255,0.2)';
+            ctx.beginPath(); ctx.arc(this.turtle.x, this.turtle.y, this.turtle.r+10, 0, Math.PI*2); ctx.fill();
+          }
+          ctx.font='36px sans-serif'; ctx.textAlign='center'; ctx.fillText('🐢', this.turtle.x, this.turtle.y+12);
+          scoreEl.textContent = '🏆 ' + this.score + '分 | ' + '❤️'.repeat(this.lives) + '🩶'.repeat(3-this.lives) + (this.hasShield?' | 🛡️':'');
         }
       }
 
@@ -277,84 +452,274 @@
         constructor() {
           this.shark = { x: 100, y: canvas.height/2, r: 25 };
           this.harpoons = [];
+          this.fish = [];
           this.health = 20;
+          this.maxHealth = 20;
           this.score = 0;
           this.spawnTimer = 0;
+          this.fishTimer = 0;
+          this._gameOver = false;
+          this.flash = 0;
+        }
+        setDifficulty(diff) {
+          if (diff === 'easy') { this.health = 30; this.maxHealth = 30; }
+          else if (diff === 'hard') { this.health = 10; this.maxHealth = 10; }
+          else { this.health = 20; this.maxHealth = 20; }
         }
         update() {
+          if (this._gameOver) return false;
           this.spawnTimer++;
-          if (this.spawnTimer > 25) {
+          this.flash = Math.max(0, this.flash - 1);
+          // 鱼叉生成（带预警闪光）
+          if (this.spawnTimer > Math.max(15, 30 - Math.floor(this.score/300))) {
             this.spawnTimer = 0;
-            this.harpoons.push({ x: canvas.width, y: Math.random()*canvas.height, speed: 3 + Math.random()*3 });
+            this.harpoons.push({ x: canvas.width, y: Math.random()*canvas.height, speed: 3+Math.random()*3, warned: false });
+            this.flash = 10;
           }
-          // 移动鲨鱼（随鼠标Y）
-          // 碰撞鱼叉
-          for (let i=this.harpoons.length-1; i>=0; i--) {
-            const h = this.harpoons[i];
+          // 治愈鱼
+          this.fishTimer++;
+          if (this.fishTimer > 60) {
+            this.fishTimer = 0;
+            if (Math.random() < 0.4) {
+              this.fish.push({ x: canvas.width, y: Math.random()*canvas.height, speed: 1.5+Math.random(), type: 'heal' });
+            }
+          }
+          // 鱼叉
+          for (var i=this.harpoons.length-1; i>=0; i--) {
+            var h = this.harpoons[i];
             h.x -= h.speed;
             if (Math.hypot(this.shark.x - h.x, this.shark.y - h.y) < this.shark.r + 8) {
-              this.health -= 2;
-              this.harpoons.splice(i,1);
-              if (this.health <= 0) return false;
-            } else if (h.x < -20) this.harpoons.splice(i,1);
+              this.health = Math.max(0, this.health-2); this.harpoons.splice(i,1);
+              if (this.health <= 0) { this._gameOver = true; return false; }
+            } else if (h.x < -30) this.harpoons.splice(i,1);
+          }
+          // 鱼碰撞（鲨鱼吃鱼回血）
+          for (var i=this.fish.length-1; i>=0; i--) {
+            var f = this.fish[i];
+            f.x -= f.speed;
+            if (Math.hypot(this.shark.x - f.x, this.shark.y - f.y) < this.shark.r + 12) {
+              this.health = Math.min(this.maxHealth, this.health+3); this.fish.splice(i,1); this.score += 5;
+            } else if (f.x < -30) this.fish.splice(i,1);
           }
           this.score++;
           return true;
         }
         draw() {
           ctx.clearRect(0,0,canvas.width,canvas.height);
-          const grad = ctx.createLinearGradient(0,0,canvas.width,0);
+          var grad = ctx.createLinearGradient(0,0,canvas.width,0);
           grad.addColorStop(0,'#0a3d5c'); grad.addColorStop(1,'#1a6b8a');
           ctx.fillStyle = grad; ctx.fillRect(0,0,canvas.width,canvas.height);
+          // 预警闪光
+          if (this.flash > 5) {
+            ctx.fillStyle = 'rgba(255,50,50,' + (this.flash/15)*0.15 + ')';
+            ctx.fillRect(0,0,canvas.width,canvas.height);
+          }
           // 鱼叉
           ctx.fillStyle = '#c0c0c0';
-          for (const h of this.harpoons) {
-            ctx.fillRect(h.x, h.y-2, 30, 4);
-            ctx.fillStyle = '#ff4444'; ctx.beginPath(); ctx.arc(h.x, h.y, 6,0,Math.PI*2); ctx.fill();
+          for (var i=0; i<this.harpoons.length; i++) {
+            var h = this.harpoons[i];
+            ctx.save();
+            ctx.translate(h.x, h.y);
+            ctx.rotate(Math.PI);
+            ctx.fillRect(0, -2, 30, 4);
+            ctx.fillStyle = '#ff4444';
+            ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI*2); ctx.fill();
+            ctx.restore();
+          }
+          // 治愈鱼
+          ctx.font='22px sans-serif'; ctx.textAlign='center';
+          for (var i=0; i<this.fish.length; i++) {
+            ctx.fillText('🐟', this.fish[i].x, this.fish[i].y+7);
           }
           // 鲨鱼
-          ctx.font='45px sans-serif'; ctx.fillText('🦈', this.shark.x-25, this.shark.y+15);
-          ctx.fillStyle = '#fff'; ctx.font='14px sans-serif'; ctx.fillText(`生命: ${this.health}`, 20, 30);
-          scoreEl.textContent = `存活时间: ${Math.floor(this.score/30)}秒`;
+          ctx.font='45px sans-serif'; ctx.textAlign='center';
+          ctx.fillText('🦈', this.shark.x, this.shark.y+15);
+          // 血条
+          var barW = 120, barH = 12, barX = 20, barY = 20;
+          ctx.fillStyle = 'rgba(0,0,0,0.4)';
+          ctx.beginPath(); ctx.roundRect(barX, barY, barW, barH, 6); ctx.fill();
+          ctx.fillStyle = this.health > 10 ? '#4ecdc4' : this.health > 5 ? '#ff9f43' : '#ff6b6b';
+          ctx.beginPath(); ctx.roundRect(barX, barY, barW * (this.health/this.maxHealth), barH, 6); ctx.fill();
+          ctx.fillStyle = '#fff';
+          ctx.font = '10px sans-serif';
+          ctx.textAlign = 'left';
+          ctx.fillText('❤️ ' + this.health + '/' + this.maxHealth, barX + barW + 8, barY + 10);
+          scoreEl.textContent = '⏱ ' + Math.floor(this.score/30) + '秒 | 🐟 +' + Math.floor((this.score-this.score%30)/30*5*0) + '???';
         }
       }
 
       // ================== 游戏4：珊瑚种植 ==================
       class CoralReef {
         constructor() {
-          this.plots = []; // 种植点 {x,y,color,growth}
+          this.spots = [];
+          var cols = 4, rows = 2;
+          var sx = 80, sy = 160, gx = 120, gy = 85;
+          for (var r = 0; r < rows; r++) {
+            for (var c = 0; c < cols; c++) {
+              this.spots.push({ x: sx + c * gx, y: sy + r * gy, planted: false, stage: 0, growTimer: 0, dead: false });
+            }
+          }
+          this.fragments = 12;
           this.score = 0;
-          this.timer = 30*60; // 30秒（60fps）
-          this.selection = { x: 0, y: 0, active: false };
-          this.plantInterval = 0;
+          this.trash = [];
+          this.timer = 50 * 60;
+          this.spawnTimer = 0;
+          this.spawnInterval = 50;
+          this.difficulty = 0;
+          this.cleanStreak = 0;
+          this._gameOver = false;
+          this.trashEmoji = ['🥤', '🛍️', '🪣', '🔋'];
+        }
+        setDifficulty(diff) {
+          if (diff === 'easy') { this.fragments = 15; this.timer = 60 * 60; }
+          else if (diff === 'hard') { this.fragments = 8; this.timer = 40 * 60; }
+          else { this.fragments = 12; this.timer = 50 * 60; }
         }
         update() {
+          if (this._gameOver) return false;
           this.timer--;
-          if (this.timer <= 0) return false;
-          // 通过鼠标点击种植
+          if (this.timer <= 0) { this._gameOver = true; return false; }
+
+          for (var i = 0; i < this.spots.length; i++) {
+            var s = this.spots[i];
+            if (s.planted && !s.dead && s.stage < 5) {
+              s.growTimer++;
+              if (s.growTimer >= 100) {
+                s.growTimer = 0;
+                s.stage++;
+                this.score += 10 + s.stage * 2;
+              }
+            }
+          }
+
+          this.difficulty++;
+          this.spawnInterval = Math.max(12, 50 - Math.floor(this.difficulty / 150));
+          this.spawnTimer++;
+          if (this.spawnTimer >= this.spawnInterval) {
+            this.spawnTimer = 0;
+            this.trash.push({
+              x: 30 + Math.random() * (canvas.width - 60),
+              y: -20,
+              speed: 1.2 + Math.random() * 1.8,
+              emoji: this.trashEmoji[Math.floor(Math.random() * this.trashEmoji.length)]
+            });
+          }
+
+          for (var i = this.trash.length - 1; i >= 0; i--) {
+            var t = this.trash[i];
+            t.y += t.speed;
+            var hit = false;
+            for (var j = 0; j < this.spots.length; j++) {
+              var s = this.spots[j];
+              if (s.planted && !s.dead && Math.abs(t.x - s.x) < 20 && Math.abs(t.y - s.y) < 22) {
+                s.stage = Math.max(0, s.stage - 1);
+                if (s.stage <= 0) { s.dead = true; s.planted = false; }
+                this.score = Math.max(0, this.score - 20);
+                hit = true; break;
+              }
+            }
+            if (hit) { this.trash.splice(i, 1); continue; }
+            if (t.y > canvas.height + 20) this.trash.splice(i, 1);
+          }
+
+          var alive = false;
+          for (var i = 0; i < this.spots.length; i++) {
+            if (this.spots[i].planted && !this.spots[i].dead) { alive = true; break; }
+          }
+          if (this.fragments <= 0 && !alive) { this._gameOver = true; return false; }
+
           return true;
         }
         draw() {
-          ctx.clearRect(0,0,canvas.width,canvas.height);
-          ctx.fillStyle = '#012b36'; ctx.fillRect(0,0,canvas.width,canvas.height);
-          // 绘制海底沙地
-          ctx.fillStyle = '#c2a56b'; ctx.fillRect(0, canvas.height-40, canvas.width, 40);
-          // 已种植的珊瑚
-          for (const p of this.plots) {
-            ctx.fillStyle = p.color;
-            ctx.beginPath(); ctx.arc(p.x, p.y, 8 + p.growth*2, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = '#fff'; ctx.font='12px sans-serif'; ctx.fillText('🪸', p.x-12, p.y+5);
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          var grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+          grad.addColorStop(0, '#042a44'); grad.addColorStop(0.5, '#0a5a7a'); grad.addColorStop(1, '#0a2a1a');
+          ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
+          // 海底
+          ctx.fillStyle = '#7a6a4a';
+          ctx.fillRect(0, canvas.height - 40, canvas.width, 40);
+          ctx.fillStyle = '#5a4a2a';
+          for (var i = 0; i < 12; i++) {
+            ctx.beginPath();
+            ctx.arc(25 + i * 48, canvas.height - 20 + (i % 3) * 12, 3 + (i % 4), 0, Math.PI * 2);
+            ctx.fill();
           }
-          scoreEl.textContent = `珊瑚数: ${this.plots.length} | 剩余: ${Math.ceil(this.timer/60)}秒`;
+
+          for (var i = 0; i < this.spots.length; i++) {
+            var s = this.spots[i];
+            if (!s.planted && !s.dead) {
+              ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+              ctx.lineWidth = 1;
+              ctx.setLineDash([4, 4]);
+              ctx.beginPath(); ctx.arc(s.x, s.y, 18, 0, Math.PI * 2); ctx.stroke();
+              ctx.setLineDash([]);
+              if (this.fragments > 0) {
+                ctx.fillStyle = 'rgba(255,255,255,' + (0.08 + 0.08 * Math.sin(Date.now() / 400)) + ')';
+                ctx.beginPath(); ctx.arc(s.x, s.y, 16, 0, Math.PI * 2); ctx.fill();
+              }
+            }
+            if (s.planted && s.stage > 0) {
+              var colors = ['#ff6b6b', '#ff9f43', '#4ecdc4', '#a29bfe', '#fd79a8'];
+              var clr = colors[Math.min(s.stage - 1, colors.length - 1)];
+              var r = 6 + s.stage * 4;
+              ctx.shadowColor = clr; ctx.shadowBlur = 12;
+              ctx.fillStyle = clr;
+              ctx.beginPath(); ctx.arc(s.x, s.y, r, 0, Math.PI * 2); ctx.fill();
+              ctx.shadowBlur = 0;
+              ctx.fillStyle = 'rgba(255,255,255,0.3)';
+              ctx.beginPath(); ctx.arc(s.x - 3, s.y - 3, r * 0.35, 0, Math.PI * 2); ctx.fill();
+              if (s.stage >= 3) {
+                ctx.fillStyle = clr;
+                for (var a = 0; a < 4; a++) {
+                  var angle = a * Math.PI / 2 + Date.now() / 2000;
+                  ctx.beginPath(); ctx.arc(s.x + Math.cos(angle) * (r + 5), s.y + Math.sin(angle) * (r + 5), 4, 0, Math.PI * 2); ctx.fill();
+                }
+              }
+              // 成长进度条
+              if (s.stage < 5) {
+                var pct = s.growTimer / 100;
+                ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                ctx.beginPath(); ctx.roundRect(s.x - 14, s.y + r + 5, 28, 4, 2); ctx.fill();
+                ctx.fillStyle = clr;
+                ctx.beginPath(); ctx.roundRect(s.x - 14, s.y + r + 5, 28 * pct, 4, 2); ctx.fill();
+              }
+            }
+            if (s.dead) {
+              ctx.fillStyle = '#555';
+              ctx.beginPath(); ctx.arc(s.x, s.y, 8, 0, Math.PI * 2); ctx.fill();
+              ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+              ctx.fillText('💀', s.x, s.y + 4);
+            }
+          }
+
+          // 垃圾（不同类型）
+          for (var i = 0; i < this.trash.length; i++) {
+            var t = this.trash[i];
+            ctx.font = '18px sans-serif'; ctx.textAlign = 'center';
+            ctx.fillText(t.emoji, t.x, t.y + 6);
+          }
+
+          scoreEl.textContent = '🌿 ' + this.score + '分 | 🧩 ' + this.fragments + ' | ⏱ ' + Math.ceil(this.timer / 60) + '秒';
         }
         handleClick(mx, my) {
-          if (my < canvas.height-50) {
-            const colors = ['#ff6b6b','#4ecdc4','#ff9f43','#a29bfe','#fd79a8'];
-            this.plots.push({
-              x: mx, y: my,
-              color: colors[Math.floor(Math.random()*colors.length)],
-              growth: 0
-            });
+          if (this._gameOver) return;
+          for (var i = this.trash.length - 1; i >= 0; i--) {
+            var t = this.trash[i];
+            if (Math.abs(mx - t.x) < 18 && Math.abs(my - t.y) < 18) {
+              this.trash.splice(i, 1);
+              this.cleanStreak++;
+              this.score += 5 + Math.min(this.cleanStreak, 10);
+              return;
+            }
+          }
+          this.cleanStreak = 0;
+          if (this.fragments <= 0) return;
+          for (var i = 0; i < this.spots.length; i++) {
+            var s = this.spots[i];
+            if (!s.planted && Math.abs(mx - s.x) < 20 && Math.abs(my - s.y) < 20 && my < canvas.height - 40) {
+              s.planted = true; s.stage = 1; s.growTimer = 0; s.dead = false; this.fragments--;
+              return;
+            }
           }
         }
       }
@@ -365,17 +730,28 @@
           this.sequence = [];
           this.playerSequence = [];
           this.buttons = [];
-          this.phase = 'show'; // show, input, gameover
+          this.phase = 'show';
           this.score = 0;
           this.showIndex = 0;
-          this.showTimer = 0;
+          this.showTimer = 20;
+          this.flashBtn = -1;
+          this.flashTimer = 0;
+          this.feedbackText = '';
+          this.feedbackTimer = 0;
+          this._gameOver = false;
+          this.showBaseTimer = 25;
           this.initButtons();
           this.addToSequence();
         }
+        setDifficulty(diff) {
+          if (diff === 'easy') this.showBaseTimer = 35;
+          else if (diff === 'hard') this.showBaseTimer = 15;
+          else this.showBaseTimer = 25;
+        }
         initButtons() {
-          const colors = ['#ff6b6b','#4ecdc4','#ff9f43','#a29bfe','#fd79a8','#ffeaa7'];
-          const notes = ['🐋低','🐋中','🐋高','🐋升','🐋降','🐋鸣'];
-          for (let i=0; i<6; i++) {
+          var colors = ['#ff6b6b','#4ecdc4','#ff9f43','#a29bfe','#fd79a8','#ffeaa7'];
+          var notes = ['🐋低','🐋中','🐋高','🐋升','🐋降','🐋鸣'];
+          for (var i=0; i<6; i++) {
             this.buttons.push({
               x: 100 + (i%3)*160, y: 100 + Math.floor(i/3)*120,
               w: 100, h: 80, color: colors[i], note: notes[i]
@@ -386,14 +762,17 @@
           this.sequence.push(Math.floor(Math.random()*6));
           this.phase = 'show';
           this.showIndex = 0;
-          this.showTimer = 20;
+          this.showTimer = Math.max(10, (this.showBaseTimer || 25) - this.sequence.length);
         }
         update() {
+          if (this._gameOver) return false;
+          if (this.flashTimer > 0) this.flashTimer--;
+          if (this.feedbackTimer > 0) this.feedbackTimer--;
           if (this.phase === 'show') {
             this.showTimer--;
             if (this.showTimer <= 0) {
               this.showIndex++;
-              this.showTimer = 20;
+              this.showTimer = Math.max(15, 35 - this.sequence.length);
               if (this.showIndex >= this.sequence.length) {
                 this.phase = 'input';
                 this.playerSequence = [];
@@ -405,34 +784,67 @@
         draw() {
           ctx.clearRect(0,0,canvas.width,canvas.height);
           ctx.fillStyle = '#021f30'; ctx.fillRect(0,0,canvas.width,canvas.height);
-          // 绘制按钮
-          for (let i=0; i<this.buttons.length; i++) {
-            const b = this.buttons[i];
-            ctx.fillStyle = b.color;
-            ctx.globalAlpha = 0.3;
-            ctx.fillRect(b.x, b.y, b.w, b.h);
-            ctx.globalAlpha = 1.0;
-            ctx.fillStyle = '#fff'; ctx.font='14px sans-serif'; ctx.fillText(b.note, b.x+15, b.y+45);
-            // 高亮显示序列
-            if (this.phase === 'show' && this.showIndex < this.sequence.length && this.sequence[this.showIndex] === i) {
-              ctx.fillStyle = '#fff'; ctx.globalAlpha = 0.8;
-              ctx.fillRect(b.x, b.y, b.w, b.h);
-              ctx.globalAlpha = 1.0;
+          // 装饰声波
+          ctx.strokeStyle = 'rgba(0,212,170,0.05)';
+          ctx.lineWidth = 1;
+          for (var w=0; w<3; w++) {
+            ctx.beginPath();
+            for (var a=0; a<360; a++) {
+              var rad = a*Math.PI/180;
+              var r2 = 60 + w*30 + Math.sin(a*0.03+Date.now()/1000)*10;
+              var px = 300 + Math.cos(rad)*r2;
+              var py = 200 + Math.sin(rad)*r2;
+              if (a===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
             }
+            ctx.stroke();
           }
-          scoreEl.textContent = `序列长度: ${this.sequence.length}`;
+          // 按钮
+          for (var i=0; i<this.buttons.length; i++) {
+            var b = this.buttons[i];
+            var isCurrentShow = this.phase === 'show' && this.showIndex < this.sequence.length && this.sequence[this.showIndex] === i;
+            var isFlash = this.flashBtn === i && this.flashTimer > 0;
+            ctx.fillStyle = b.color;
+            ctx.globalAlpha = (isCurrentShow || isFlash) ? 0.9 : 0.25;
+            ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 10); ctx.fill();
+            ctx.globalAlpha = 1.0;
+            if (isCurrentShow || isFlash) {
+              ctx.shadowColor = b.color; ctx.shadowBlur = 20;
+              ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 10); ctx.fill();
+              ctx.shadowBlur = 0;
+            }
+            ctx.fillStyle = '#fff'; ctx.font='13px sans-serif'; ctx.textAlign='center';
+            ctx.fillText(b.note, b.x+b.w/2, b.y+45);
+          }
+          // 反馈文字
+          if (this.feedbackTimer > 0) {
+            ctx.fillStyle = this.feedbackText.includes('正确') ? '#4ecdc4' : '#ff6b6b';
+            ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'center';
+            ctx.fillText(this.feedbackText, canvas.width/2, 70);
+          }
+          // 进度
+          if (this.phase === 'input') {
+            ctx.fillStyle = 'rgba(255,255,255,0.4)';
+            ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+            ctx.fillText('步骤 ' + (this.playerSequence.length+1) + ' / ' + this.sequence.length, canvas.width/2, canvas.height-20);
+          }
+          scoreEl.textContent = '🐋 序列长度: ' + this.sequence.length + ' | 得分: ' + this.score;
         }
         handleClick(mx, my) {
-          if (this.phase !== 'input') return;
-          for (let i=0; i<this.buttons.length; i++) {
-            const b = this.buttons[i];
+          if (this.phase !== 'input' || this._gameOver) return;
+          for (var i=0; i<this.buttons.length; i++) {
+            var b = this.buttons[i];
             if (mx > b.x && mx < b.x+b.w && my > b.y && my < b.y+b.h) {
+              this.flashBtn = i;
+              this.flashTimer = 15;
               this.playerSequence.push(i);
-              // 检查
               if (this.playerSequence[this.playerSequence.length-1] !== this.sequence[this.playerSequence.length-1]) {
-                this.phase = 'gameover';
+                this.feedbackText = '❌ 错误! 游戏结束';
+                this.feedbackTimer = 60;
+                this._gameOver = true;
               } else if (this.playerSequence.length === this.sequence.length) {
                 this.score += this.sequence.length * 10;
+                this.feedbackText = '✅ 正确! +' + (this.sequence.length * 10);
+                this.feedbackTimer = 30;
                 this.addToSequence();
               }
               break;
@@ -444,61 +856,81 @@
       // ================== 游戏6：可持续渔业 ==================
       class SustainableFishing {
         constructor() {
-          this.hook = { x: canvas.width/2, y: 50, speed: 0, lineLength: 0 };
+          this.hook = { x: canvas.width/2, y: 50 };
           this.fish = [];
           this.score = 0;
-          this.warning = '';
-          this.hookState = 'idle'; // idle, dropping, pulling
+          this.caughtCount = 0;
+          this.releaseCount = 0;
+          this.hookState = 'idle';
           this.caughtFish = null;
+          this.timer = 50 * 60;
+          this._gameOver = false;
+          this.msgText = '';
+          this.msgTimer = 0;
           this.spawnFish();
+        }
+        setDifficulty(diff) {
+          if (diff === 'easy') this.timer = 60 * 60;
+          else if (diff === 'hard') this.timer = 40 * 60;
+          else this.timer = 50 * 60;
         }
         spawnFish() {
           this.fish = [];
-          for (let i=0; i<5; i++) {
+          for (var i=0; i<6; i++) {
             this.fish.push({
-              x: 100 + i*100, y: 250 + Math.random()*100,
-              size: 20 + Math.random()*30,
+              x: 50 + Math.random()*(canvas.width-100),
+              y: 150 + Math.random()*(canvas.height-200),
+              size: 18 + Math.random()*35,
               speed: 0.5 + Math.random()*1.5,
-              direction: Math.random()<0.5 ? -1 : 1,
+              dir: Math.random()<0.5 ? -1 : 1,
+              phase: Math.random()*Math.PI*2,
+              wobble: 0.5 + Math.random()*1.5,
             });
           }
         }
         update() {
-          // 鱼游动
-          for (const f of this.fish) {
-            f.x += f.speed * f.direction;
-            if (f.x < 50 || f.x > canvas.width-50) f.direction *= -1;
+          if (this._gameOver) return false;
+          this.timer--;
+          if (this.timer <= 0) { this._gameOver = true; return false; }
+          if (this.msgTimer > 0) this.msgTimer--;
+
+          for (var i=0; i<this.fish.length; i++) {
+            var f = this.fish[i];
+            f.x += f.speed * f.dir;
+            f.y += Math.sin(this.timer*0.02 + f.phase) * f.wobble * 0.3;
+            if (f.x < 40 || f.x > canvas.width-40) f.dir *= -1;
+            f.y = Math.max(120, Math.min(canvas.height-50, f.y));
           }
-          // 钩子逻辑
+
           if (this.hookState === 'dropping') {
-            this.hook.y += 4;
-            if (this.hook.y > canvas.height-50) {
+            this.hook.y += 3.5;
+            if (this.hook.y > canvas.height - 50) {
               this.hookState = 'pulling';
-              this.hook.speed = -3;
             }
-            // 检测鱼
-            for (const f of this.fish) {
-              if (Math.abs(this.hook.x - f.x) < 20 && Math.abs(this.hook.y - f.y) < 20) {
+            for (var i=0; i<this.fish.length; i++) {
+              var f = this.fish[i];
+              if (Math.abs(this.hook.x - f.x) < 18 && Math.abs(this.hook.y - f.y) < 18) {
                 this.caughtFish = f;
                 this.hookState = 'pulling';
-                this.hook.speed = -2;
+                this.catchDecision = null;
                 break;
               }
             }
           } else if (this.hookState === 'pulling') {
-            this.hook.y += this.hook.speed;
+            this.hook.y -= 3;
             if (this.hook.y <= 50) {
-              // 拉上岸
               if (this.caughtFish) {
                 if (this.caughtFish.size > 30) {
                   this.score += 50;
-                  this.warning = '✅ 大鱼，允许捕捞';
+                  this.caughtCount++;
+                  this.showMsg('✅ 大鱼+' + Math.floor(this.caughtFish.size), '#4ecdc4');
                 } else {
-                  this.score -= 20;
-                  this.warning = '❌ 小鱼，放生！';
+                  this.score = Math.max(0, this.score - 15);
+                  this.releaseCount++;
+                  this.showMsg('❌ 小鱼放生 -15', '#ff6b6b');
                 }
-                this.fish = this.fish.filter(f => f !== this.caughtFish);
-                if (this.fish.length < 2) this.spawnFish();
+                this.fish = this.fish.filter(function(f) { return f !== this.caughtFish; }.bind(this));
+                if (this.fish.length < 3) this.spawnFish();
               }
               this.hookState = 'idle';
               this.caughtFish = null;
@@ -506,29 +938,68 @@
           }
           return true;
         }
+        showMsg(text, color) {
+          this.msgText = text;
+          this.msgColor = color || '#fff';
+          this.msgTimer = 40;
+        }
         draw() {
           ctx.clearRect(0,0,canvas.width,canvas.height);
-          ctx.fillStyle = '#0a4a6e'; ctx.fillRect(0,0,canvas.width,canvas.height);
+          ctx.fillStyle = '#0a4a6e';
+          ctx.fillRect(0,0,canvas.width,canvas.height);
+          // 水下分层
+          for (var d=0; d<5; d++) {
+            ctx.fillStyle = 'rgba(255,255,255,' + (0.01 - d*0.002) + ')';
+            ctx.fillRect(0, 120 + d*60, canvas.width, 2);
+          }
           // 鱼
-          ctx.font='25px sans-serif';
-          for (const f of this.fish) {
-            ctx.fillText(f.size>30?'🐟':'🐠', f.x-15, f.y+8);
-            ctx.fillStyle = '#fff'; ctx.font='10px sans-serif'; ctx.fillText(f.size>30?'大鱼':'小鱼', f.x-15, f.y-10);
+          for (var i=0; i<this.fish.length; i++) {
+            var f = this.fish[i];
+            ctx.font = f.size > 30 ? '26px sans-serif' : '20px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(f.size > 30 ? '🐟' : '🐠', f.x, f.y+8);
+            ctx.fillStyle = f.size > 30 ? '#4ecdc4' : '#ff9f43';
+            ctx.font = '9px sans-serif';
+            ctx.fillText(f.size > 30 ? '✓大鱼' : '✗小鱼', f.x, f.y-12);
+            ctx.fillStyle = 'rgba(255,255,255,0.2)';
+            ctx.font = '7px sans-serif';
+            ctx.fillText(Math.floor(f.size) + 'cm', f.x, f.y+20);
           }
-          // 钓竿和线
-          ctx.beginPath(); ctx.moveTo(this.hook.x, 0); ctx.lineTo(this.hook.x, this.hook.y);
-          ctx.strokeStyle = '#ccc'; ctx.lineWidth = 2; ctx.stroke();
-          ctx.fillStyle = '#888'; ctx.beginPath(); ctx.arc(this.hook.x, this.hook.y, 6, 0, Math.PI*2); ctx.fill();
-          ctx.fillStyle = '#fff'; ctx.font='14px sans-serif'; ctx.fillText('🎣', this.hook.x-15, 40);
-          if (this.warning) {
-            ctx.fillStyle = '#fff'; ctx.font='16px sans-serif'; ctx.fillText(this.warning, 20, 30);
-            setTimeout(()=>{this.warning=''},1500);
+          // 钓线
+          ctx.beginPath();
+          ctx.moveTo(this.hook.x, 0);
+          ctx.lineTo(this.hook.x, this.hook.y);
+          ctx.strokeStyle = 'rgba(200,200,200,0.5)';
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 4]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          // 深度标记
+          var depth = Math.floor((this.hook.y - 50) / (canvas.height-100) * 100);
+          ctx.fillStyle = 'rgba(255,255,255,0.2)';
+          ctx.font = '9px sans-serif';
+          ctx.textAlign = 'left';
+          ctx.fillText('深度: ' + depth + '%', 5, canvas.height-5);
+          // 鱼钩
+          ctx.fillStyle = '#aaa';
+          ctx.beginPath(); ctx.arc(this.hook.x, this.hook.y, 5, 0, Math.PI*2); ctx.fill();
+          ctx.font = '14px sans-serif'; ctx.textAlign = 'center';
+          ctx.fillText('🎣', this.hook.x, 40);
+          // 消息
+          if (this.msgTimer > 0) {
+            ctx.fillStyle = this.msgColor || '#fff';
+            ctx.font = 'bold 15px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(this.msgText, canvas.width/2, 80);
           }
-          scoreEl.textContent = `得分: ${this.score}`;
+          // 时间
+          var secs = Math.ceil(this.timer / 60);
+          scoreEl.textContent = '🎣 ' + this.score + '分 | 渔获 ' + this.caughtCount + ' | 放生 ' + this.releaseCount + ' | ⏱' + secs + '秒';
         }
         handleClick(mx, my) {
+          if (this._gameOver) return;
           if (this.hookState === 'idle') {
-            this.hook.x = mx;
+            this.hook.x = Math.max(20, Math.min(canvas.width-20, mx));
             this.hookState = 'dropping';
           }
         }
@@ -537,61 +1008,123 @@
       // ========== 游戏管理器 ==========
       function startGame(gameClass) {
         if (currentGame && currentGame.cleanup) currentGame.cleanup();
+        if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        currentGameClass = gameClass;
         currentGame = new gameClass();
+        currentGame._gameOver = false;
+        currentGame.difficulty = difficulty;
+        if (currentGame.setDifficulty) currentGame.setDifficulty(difficulty);
+        if (speedSlider && gameId === 'ocean-cleanup' && currentGame.speed !== undefined) {
+          currentGame.speed = parseFloat(speedSlider.value);
+        }
         canvas.style.cursor = 'default';
         // 通用控制
-        const mouseHandler = (e) => {
-          const rect = canvas.getBoundingClientRect();
-          const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
-          const my = (e.clientY - rect.top) * (canvas.height / rect.height);
-          if (currentGame.handleClick) currentGame.handleClick(mx, my);
-          // 篮子/鲨鱼/海龟跟随鼠标Y
-          if (currentGame.basket) currentGame.basket.x = mx - 40;
-          if (currentGame.shark) currentGame.shark.y = my;
-          if (currentGame.turtle) {
+        const mouseHandler = function(e) {
+          var rect = canvas.getBoundingClientRect();
+          var mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+          var my = (e.clientY - rect.top) * (canvas.height / rect.height);
+          if (currentGame && currentGame.handleClick) currentGame.handleClick(mx, my);
+          if (currentGame && currentGame.basket) currentGame.basket.x = mx - 40;
+          if (currentGame && currentGame.shark) currentGame.shark.y = my;
+          if (currentGame && currentGame.turtle) {
             currentGame.turtle.x = mx;
             currentGame.turtle.y = my;
           }
         };
-        canvas.addEventListener('mousemove', (e) => {
-          const rect = canvas.getBoundingClientRect();
-          const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+        canvas.addEventListener('mousemove', function(e) {
+          if (!currentGame || currentGame._gameOver) return;
+          var rect = canvas.getBoundingClientRect();
+          var mx = (e.clientX - rect.left) * (canvas.width / rect.width);
           if (currentGame.basket) currentGame.basket.x = mx - 40;
           if (currentGame.shark) currentGame.shark.y = (e.clientY - rect.top) * (canvas.height / rect.height);
         });
         canvas.addEventListener('click', mouseHandler);
         // 触摸支持
-        canvas.addEventListener('touchmove', (e) => {
+        canvas.addEventListener('touchmove', function(e) {
           e.preventDefault();
-          const rect = canvas.getBoundingClientRect();
-          const touch = e.touches[0];
-          const mx = (touch.clientX - rect.left) * (canvas.width / rect.width);
+          if (!currentGame || currentGame._gameOver) return;
+          var rect = canvas.getBoundingClientRect();
+          var touch = e.touches[0];
+          var mx = (touch.clientX - rect.left) * (canvas.width / rect.width);
           if (currentGame.basket) currentGame.basket.x = mx - 40;
         });
-        canvas.addEventListener('touchstart', (e) => {
+        canvas.addEventListener('touchstart', function(e) {
           e.preventDefault();
-          const rect = canvas.getBoundingClientRect();
-          const touch = e.touches[0];
-          const mx = (touch.clientX - rect.left) * (canvas.width / rect.width);
-          const my = (touch.clientY - rect.top) * (canvas.height / rect.height);
+          if (!currentGame) return;
+          var rect = canvas.getBoundingClientRect();
+          var touch = e.touches[0];
+          var mx = (touch.clientX - rect.left) * (canvas.width / rect.width);
+          var my = (touch.clientY - rect.top) * (canvas.height / rect.height);
           if (currentGame.handleClick) currentGame.handleClick(mx, my);
         });
 
         function gameLoop() {
           if (!currentGame) return;
-          const result = currentGame.update();
-          if (result === false) {
-            ctx.fillStyle = '#fff'; ctx.font='30px sans-serif';
-            ctx.textAlign = 'center'; ctx.fillText('Game Over', canvas.width/2, canvas.height/2);
-            ctx.textAlign = 'start';
-            scoreEl.textContent = '游戏结束，刷新页面重新开始';
-            return;
+          if (!currentGame._gameOver) {
+            try { var result = currentGame.update(); if (result === false) currentGame._gameOver = true; } catch(e) { currentGame._gameOver = true; }
           }
           currentGame.draw();
+          // 游戏结束覆盖层
+          if (currentGame._gameOver) {
+            ctx.fillStyle = 'rgba(0,0,0,0.55)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 28px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('🎮 游戏结束', canvas.width/2, canvas.height/2 - 25);
+            ctx.font = '15px sans-serif';
+            ctx.fillStyle = '#b0d4e8';
+            ctx.fillText('按 R 键重新开始', canvas.width/2, canvas.height/2 + 18);
+            ctx.textAlign = 'start';
+            ctx.textBaseline = 'alphabetic';
+          }
           animationFrameId = requestAnimationFrame(gameLoop);
         }
         gameLoop();
       }
+
+      // 调速功能（仅海洋清洁工）
+      var speedCtrl = document.getElementById('speed-control');
+      var speedSlider = document.getElementById('speed-slider');
+      var speedValue = document.getElementById('speed-value');
+      if (gameId === 'ocean-cleanup') {
+        speedCtrl.style.display = 'flex';
+        speedSlider.addEventListener('input', function() {
+          var v = parseFloat(this.value);
+          speedValue.textContent = v + 'x';
+          if (currentGame && currentGame.speed !== undefined) currentGame.speed = v;
+        });
+      }
+
+      // 键盘重启
+      document.addEventListener('keydown', function(e) {
+        if ((e.key === 'r' || e.key === 'R') && currentGame && currentGame._gameOver && currentGameClass) {
+          startGame(currentGameClass);
+        }
+      });
+
+      // 难度选择
+      document.querySelectorAll('.diff-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          document.querySelectorAll('.diff-btn').forEach(function(b) { b.classList.remove('active'); });
+          btn.classList.add('active');
+          difficulty = btn.dataset.diff;
+          // 如果游戏正在运行，立即重启用新难度
+          if (currentGame && currentGameClass) {
+            startGame(currentGameClass);
+          }
+        });
+      });
+
+      // 玩法说明
+      var helpPanel = document.getElementById('help-panel');
+      document.getElementById('help-btn').addEventListener('click', function() {
+        var isShow = helpPanel.classList.toggle('show');
+        if (isShow) {
+          helpPanel.textContent = helpTexts[gameId] || '暂无说明';
+        }
+      });
 
       // 根据ID启动游戏
       const gameMap = {
@@ -602,7 +1135,7 @@
         'whale-song': WhaleSong,
         'sustainable-fishing': SustainableFishing,
       };
-      const GameClass = gameMap[gameId];
+      var GameClass = gameMap[gameId];
       if (GameClass) {
         startGame(GameClass);
       } else {

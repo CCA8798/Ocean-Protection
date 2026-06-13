@@ -40,7 +40,7 @@
             text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
         }
 
-        /* 视频背景容器 */
+        /* 粒子背景容器 */
         #bg-container {
             position: fixed;
             top: 0;
@@ -52,49 +52,24 @@
             background: linear-gradient(135deg, #020e18 0%, #051f30 30%, #0a3d5c 60%, #020e18 100%);
         }
 
-        #bg-video {
-            display: none;
-            /* 隐藏原始video元素，由canvas绘制 */;
-        }
-
-        #bg-canvas {
+        #particle-canvas {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            object-fit: cover;
         }
 
-        /* 视频加载失败时的fallback渐变背景 */
-        #bg-fallback {
-            position: absolute;
+        /* 暗色叠加层，提升前景控件与背景的对比度 */
+        #bg-dark-overlay {
+            position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background:
-                radial-gradient(ellipse at 30% 50%, rgba(0, 180, 200, 0.25) 0%, transparent 60%),
-                radial-gradient(ellipse at 70% 30%, rgba(0, 140, 180, 0.2) 0%, transparent 55%),
-                radial-gradient(ellipse at 50% 80%, rgba(0, 100, 150, 0.3) 0%, transparent 50%),
-                linear-gradient(180deg, #010a14 0%, #042030 30%, #063545 60%, #021018 100%);
-            animation: oceanShimmer 8s ease-in-out infinite;
-        }
-
-        @keyframes oceanShimmer {
-            0%,
-            100% {
-                background-position: 0% 0%, 0% 0%, 0% 0%, 0% 0%;
-            }
-            25% {
-                background-position: 2% 1%, -1% 2%, 1% -1%, 0% 0%;
-            }
-            50% {
-                background-position: 0% 2%, 2% -1%, -1% 1%, 0% 0%;
-            }
-            75% {
-                background-position: -1% 0%, 1% 1%, 2% 0%, 0% 0%;
-            }
+            z-index: -1;
+            background: rgba(0, 0, 0, 0.5);
+            pointer-events: none;
         }
 
         /* 水纹光效叠加层 */
@@ -574,18 +549,16 @@
             }
         }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
 </head>
 <body>
 
-    <!-- 视频背景 -->
+    <!-- 粒子背景 -->
     <div id="bg-container">
-        <video id="bg-video" muted playsinline preload="auto" crossorigin="anonymous">
-            <source src="/video/ocean.mp4" type="video/mp4">
-            <source src="/video/ocean.webm" type="video/webm">
-        </video>
-        <canvas id="bg-canvas"></canvas>
-        <div id="bg-fallback"></div>
+        <canvas id="particle-canvas"></canvas>
     </div>
+    <!-- 暗色叠加层 -->
+    <div id="bg-dark-overlay"></div>
     <!-- 水纹光效 -->
     <div id="water-overlay"></div>
 
@@ -656,25 +629,18 @@
     </div>
 
     <script>
-        // ============ 视频背景引擎（平滑循环，避免抽搐） ============
+        // ============ 粒子连线背景 ============
         (function() {
-            const video = document.getElementById('bg-video');
-            const canvas = document.getElementById('bg-canvas');
-            const ctx = canvas.getContext('2d');
-            const fallback = document.getElementById('bg-fallback');
+            var canvas = document.getElementById('particle-canvas');
+            var ctx = canvas.getContext('2d');
+            var particles = [];
+            var animId = null;
+            var COUNT = 100;
+            var CONNECT = 140;
+            var RADIUS = 2.5;
 
-            let isVideoReady = false;
-            let isPlaying = false;
-            let animationFrameId = null;
-            // 用于淡入淡出的覆盖层
-            let overlayOpacity = 0;
-            let transitionState = 'none'; // 'none', 'fadeOut', 'fadeIn'
-            const fadeDuration = 0.4; // 淡入淡出持续时间（秒）
-            let fadeStartTime = 0;
-            const fadeThreshold = 0.6; // 距离结尾多少秒开始淡出
-
-            function resizeCanvas() {
-                const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            function resize() {
+                var dpr = Math.min(window.devicePixelRatio || 1, 2);
                 canvas.width = window.innerWidth * dpr;
                 canvas.height = window.innerHeight * dpr;
                 canvas.style.width = window.innerWidth + 'px';
@@ -683,139 +649,83 @@
                 ctx.scale(dpr, dpr);
             }
 
-            // 绘制视频帧（cover模式）
-            function drawVideoFrame() {
-                if (video.readyState < 2) return;
-                const vw = video.videoWidth;
-                const vh = video.videoHeight;
-                const cw = window.innerWidth;
-                const ch = window.innerHeight;
-                if (vw === 0 || vh === 0) return;
-
-                const videoRatio = vw / vh;
-                const canvasRatio = cw / ch;
-                let drawWidth, drawHeight, offsetX, offsetY;
-
-                if (videoRatio > canvasRatio) {
-                    drawHeight = ch;
-                    drawWidth = ch * videoRatio;
-                    offsetX = -(drawWidth - cw) / 2;
-                    offsetY = 0;
-                } else {
-                    drawWidth = cw;
-                    drawHeight = cw / videoRatio;
-                    offsetX = 0;
-                    offsetY = -(drawHeight - ch) / 2;
+            function init() {
+                particles = [];
+                for (var i = 0; i < COUNT; i++) {
+                    particles.push({
+                        x: Math.random() * window.innerWidth,
+                        y: Math.random() * window.innerHeight,
+                        vx: (Math.random() - 0.5) * 1.2,
+                        vy: (Math.random() - 0.5) * 1.2,
+                        r: RADIUS + Math.random() * 1.5,
+                        hue: 180 + Math.random() * 60,
+                    });
                 }
-                ctx.drawImage(video, offsetX, offsetY, drawWidth, drawHeight);
             }
 
-            // 绘制覆盖层（用于淡入淡出）
-            function drawOverlay(opacity) {
-                if (opacity <= 0) return;
-                ctx.fillStyle = `rgba(0, 0, 0, ${opacity})`;
-                ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
-            }
+            function animate() {
+                ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+                var w = window.innerWidth, h = window.innerHeight;
 
-            // 动画循环
-            function animate(timestamp) {
-                if (!isVideoReady) {
-                    animationFrameId = requestAnimationFrame(animate);
-                    return;
+                for (var i = 0; i < particles.length; i++) {
+                    var p = particles[i];
+                    p.x += p.vx; p.y += p.vy;
+                    if (p.x < 0 || p.x > w) p.vx *= -1;
+                    if (p.y < 0 || p.y > h) p.vy *= -1;
+                    p.x = Math.max(0, Math.min(w, p.x));
+                    p.y = Math.max(0, Math.min(h, p.y));
                 }
 
-                // 计算当前时间
-                const currentTime = video.currentTime;
-                const duration = video.duration;
-                const timeToEnd = duration - currentTime;
-
-                // 状态机：处理淡出和淡入
-                if (transitionState === 'none' && timeToEnd < fadeThreshold) {
-                    // 开始淡出
-                    transitionState = 'fadeOut';
-                    fadeStartTime = timestamp;
-                    overlayOpacity = 0;
-                }
-
-                if (transitionState === 'fadeOut') {
-                    const elapsed = (timestamp - fadeStartTime) / 1000;
-                    overlayOpacity = Math.min(1, elapsed / fadeDuration);
-                    if (overlayOpacity >= 1) {
-                        // 重置视频到开头
-                        video.currentTime = 0;
-                        transitionState = 'fadeIn';
-                        fadeStartTime = timestamp;
-                        overlayOpacity = 1;
-                    }
-                } else if (transitionState === 'fadeIn') {
-                    const elapsed = (timestamp - fadeStartTime) / 1000;
-                    overlayOpacity = Math.max(0, 1 - elapsed / fadeDuration);
-                    if (overlayOpacity <= 0) {
-                        transitionState = 'none';
-                        overlayOpacity = 0;
+                for (var i = 0; i < particles.length; i++) {
+                    for (var j = i + 1; j < particles.length; j++) {
+                        var a = particles[i], b = particles[j];
+                        var dx = a.x - b.x, dy = a.y - b.y;
+                        var dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist < CONNECT) {
+                            var alpha = (1 - dist / CONNECT) * 0.45;
+                            var hue = (a.hue + b.hue) / 2;
+                            ctx.strokeStyle = 'hsla(' + hue + ', 70%, 60%, ' + alpha + ')';
+                            ctx.lineWidth = 1.2;
+                            ctx.beginPath();
+                            ctx.moveTo(a.x, a.y);
+                            ctx.lineTo(b.x, b.y);
+                            ctx.stroke();
+                        }
                     }
                 }
 
-                // 绘制视频帧
-                drawVideoFrame();
-                // 绘制黑色覆盖层
-                drawOverlay(overlayOpacity);
-
-                animationFrameId = requestAnimationFrame(animate);
-            }
-
-            function onVideoLoaded() {
-                clearTimeout(loadTimeout);
-                isVideoReady = true;
-                fallback.style.display = 'none';
-                canvas.style.display = 'block';
-                resizeCanvas();
-                video.play().then(() => {
-                    isPlaying = true;
-                    // 确保transitionState从none开始
-                    transitionState = 'none';
-                    overlayOpacity = 0;
-                }).catch(err => console.warn('视频自动播放受限:', err));
-                animationFrameId = requestAnimationFrame(animate);
-            }
-
-            function onVideoError() {
-                clearTimeout(loadTimeout);
-                console.warn('视频加载失败，使用fallback背景');
-                isVideoReady = false;
-                fallback.style.display = 'block';
-                canvas.style.display = 'none';
-            }
-
-            let loadTimeout = setTimeout(() => {
-                if (!isVideoReady) {
-                    onVideoError();
+                for (var i = 0; i < particles.length; i++) {
+                    var p = particles[i];
+                    ctx.fillStyle = 'hsla(' + p.hue + ', 70%, 65%, 0.8)';
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = 'hsla(' + p.hue + ', 70%, 65%, 0.12)';
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.r * 3, 0, Math.PI * 2);
+                    ctx.fill();
                 }
-            }, 10000);
 
-            video.addEventListener('loadedmetadata', onVideoLoaded);
-            video.addEventListener('error', onVideoError);
-            video.addEventListener('ended', () => {
-                // 如果transitionState没来得及处理，手动重置
-                if (transitionState === 'none') {
-                    video.currentTime = 0;
-                }
+                animId = requestAnimationFrame(animate);
+            }
+
+            resize();
+            init();
+            animate();
+
+            window.addEventListener('resize', function() {
+                resize();
+                init();
             });
-            video.load();
 
-            window.addEventListener('resize', resizeCanvas);
-
-            // 页面隐藏时暂停绘制
-            document.addEventListener('visibilitychange', () => {
+            document.addEventListener('visibilitychange', function() {
                 if (document.hidden) {
-                    if (animationFrameId) cancelAnimationFrame(animationFrameId);
-                    animationFrameId = null;
-                } else if (isVideoReady) {
-                    animationFrameId = requestAnimationFrame(animate);
+                    if (animId) cancelAnimationFrame(animId);
+                    animId = null;
+                } else {
+                    animId = requestAnimationFrame(animate);
                 }
             });
-
-            resizeCanvas();
         })();
 
         // ============ 文章加载与展示 ============
@@ -827,11 +737,14 @@
                 const articles = await res.json();
 
                 if (!articles || articles.length === 0) {
+                    var pubBtnHtml = siteConfig.showPublishButton
+                        ? '<a href="/admin.html" class="nav-btn" style="margin-top:15px;display:inline-flex;">✍️ 发布文章</a>'
+                        : '';
                     container.innerHTML = `
                         <div class="empty-state">
                             <div class="empty-icon">📝</div>
-                            <p>还没有文章，快来发布第一篇吧！</p>
-                            <a href="/admin.html" class="nav-btn" style="margin-top:15px;display:inline-flex;">✍️ 发布文章</a>
+                            <p>还没有文章</p>
+                            ${pubBtnHtml}
                         </div>`;
                     return;
                 }
@@ -850,7 +763,7 @@
                             </span>` : ''}
                         </div>
                         <h3>${escapeHtml(article.title)}</h3>
-                        <p class="article-summary">${escapeHtml(article.summary || stripHtml(article.content).substring(0, 150) + '...')}</p>
+                        <p class="article-summary">${escapeHtml(article.summary || mdToText(article.content).substring(0, 150) + '...')}</p>
                         <span class="read-more">阅读全文 →</span>
                     </article>
                 `).join('');
@@ -875,6 +788,15 @@
             const tmp = document.createElement('div');
             tmp.innerHTML = html;
             return tmp.textContent || tmp.innerText || '';
+        }
+
+        function mdToText(md) {
+            if (typeof marked === 'undefined' || !marked) return stripHtml(md);
+            try {
+                return stripHtml(marked.parse(md, { async: false }));
+            } catch (e) {
+                return stripHtml(md);
+            }
         }
 
         // ============ 文章点击跳转到独立页面 ============
@@ -908,8 +830,22 @@
         }
         setInterval(rotateTip, 8000);
 
+        // ============ 读取站点配置 ============
+        let siteConfig = { showPublishButton: true };
+        async function loadConfig() {
+            try {
+                var res = await fetch('/site-config.json');
+                if (res.ok) siteConfig = await res.json();
+            } catch (e) {}
+            if (!siteConfig.showPublishButton) {
+                var btn = document.getElementById('nav-admin');
+                if (btn) btn.style.display = 'none';
+            }
+        }
+
         // ============ 初始化 ============
         function init() {
+            loadConfig();
             loadArticles();
             // 高亮当前导航
             const path = window.location.pathname;
